@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ProductListing } from './components/ProductListing';
 import { ProductDetail } from './components/ProductDetail';
 import { PurchaseFlow } from './components/PurchaseFlow';
@@ -12,6 +12,8 @@ import { AboutUs } from './components/AboutUs';
 import { Guide } from './components/Guide';
 import { Contact } from './components/Contact';
 import { Cart, CartItem } from './components/Cart';
+import { LandingPage } from './components/LandingPage';
+import { tokenStorage, decodeJwt } from './services/api';
 
 export type Product = {
   id: string;
@@ -53,17 +55,51 @@ export type Order = {
 };
 
 export type User = {
-  email: string;
+  id: string;
+  username: string;
   name: string;
+  email: string;
+  role: string;
 };
 
+function parseUserFromToken(token: string): User | null {
+  const claims = decodeJwt(token);
+  const sub = claims['sub'];
+  const uniqueName =
+    claims['unique_name'] ||
+    claims['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'] ||
+    '';
+  const role =
+    claims['role'] ||
+    claims['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'] ||
+    'CUSTOMER';
+  if (!sub) return null;
+  return {
+    id: sub,
+    username: uniqueName,
+    name: uniqueName,
+    email: '',
+    role,
+  };
+}
+
 function App() {
-  const [view, setView] = useState<'listing' | 'detail' | 'purchase' | 'orders' | 'profile' | 'about' | 'guide' | 'contact' | 'cart'>('listing');
+  const [view, setView] = useState<
+    'landing' | 'listing' | 'detail' | 'purchase' | 'orders' | 'profile' | 'about' | 'guide' | 'contact' | 'cart'
+  >('landing');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+
+  useEffect(() => {
+    const token = tokenStorage.get();
+    if (token) {
+      const parsed = parseUserFromToken(token);
+      if (parsed) setUser(parsed);
+    }
+  }, []);
 
   const handleViewProduct = (product: Product) => {
     setSelectedProduct(product);
@@ -72,8 +108,8 @@ function App() {
 
   const handleAddToCart = (product: Product, quantity: number = 1) => {
     setCartItems((prev) => {
-      const existingItem = prev.find((item) => item.product.id === product.id);
-      if (existingItem) {
+      const existing = prev.find((item) => item.product.id === product.id);
+      if (existing) {
         return prev.map((item) =>
           item.product.id === product.id
             ? { ...item, quantity: item.quantity + quantity }
@@ -102,11 +138,10 @@ function App() {
       setShowAuthModal(true);
       return;
     }
-
-    // Create order from cart items
-    const total = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
-    
-    // For now, just create order with first item (in real app, would handle multiple items)
+    const total = cartItems.reduce(
+      (sum, item) => sum + item.product.price * item.quantity,
+      0
+    );
     if (cartItems.length > 0) {
       const order: Order = {
         id: `ORD-${Date.now()}`,
@@ -116,12 +151,10 @@ function App() {
         status: 'pending',
         purchaseType: type,
       };
-
       if (type === 'deposit') {
         order.deposit = total * 0.3;
         order.remaining = total - order.deposit;
       }
-
       setCurrentOrder(order);
       setCartItems([]);
       setView('purchase');
@@ -138,12 +171,10 @@ function App() {
       status: 'pending',
       purchaseType: type,
     };
-
     if (type === 'deposit') {
-      order.deposit = total * 0.3; // 30% deposit
+      order.deposit = total * 0.3;
       order.remaining = total - order.deposit;
     }
-
     setCurrentOrder(order);
     setView('purchase');
   };
@@ -154,21 +185,22 @@ function App() {
     setCurrentOrder(null);
   };
 
-  const handleLogin = (email: string, name: string) => {
-    setUser({ email, name });
+  const handleLogin = (user: User) => {
+    setUser(user);
     setShowAuthModal(false);
   };
 
   const handleLogout = () => {
+    tokenStorage.remove();
     setUser(null);
-    setView('listing');
+    setView('landing');
   };
 
   const handleNavigate = (newView: string) => {
     setView(newView as any);
   };
 
-  const handleUpdateProfile = (data: any) => {
+  const handleUpdateProfile = (data: { name: string; email: string }) => {
     if (user) {
       setUser({ ...user, name: data.name, email: data.email });
     }
@@ -186,12 +218,18 @@ function App() {
       />
 
       <main className="flex-1">
+        {view === 'landing' && (
+          <LandingPage
+            onExplore={() => setView('listing')}
+            onLogin={() => setShowAuthModal(true)}
+          />
+        )}
         {view === 'listing' && (
-          <ProductListing 
+          <ProductListing
             onViewProduct={handleViewProduct}
             onAddToCart={handleAddToCart}
             user={user}
-            onLogin={handleLogin}
+            onLogin={() => setShowAuthModal(true)}
             onLogout={handleLogout}
           />
         )}
@@ -202,7 +240,7 @@ function App() {
             onPurchase={handlePurchase}
             onAddToCart={handleAddToCart}
             user={user}
-            onLogin={handleLogin}
+            onLogin={() => setShowAuthModal(true)}
           />
         )}
         {view === 'purchase' && currentOrder && (
@@ -212,9 +250,7 @@ function App() {
             user={user}
           />
         )}
-        {view === 'orders' && user && (
-          <MyOrders user={user} />
-        )}
+        {view === 'orders' && user && <MyOrders user={user} />}
         {view === 'profile' && user && (
           <Profile user={user} onUpdateProfile={handleUpdateProfile} />
         )}
@@ -234,7 +270,6 @@ function App() {
       </main>
 
       <Footer onNavigate={handleNavigate} />
-
       <AIAssistant onProductSelect={handleViewProduct} />
 
       {showAuthModal && (

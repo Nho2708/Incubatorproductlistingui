@@ -43,7 +43,7 @@ export function Header({ user, onLogin, onLogout, onNavigate, cartCount = 0, onC
         <div className="flex items-center justify-between">
           {/* Logo */}
           <button
-            onClick={() => onNavigate('listing')}
+            onClick={() => onNavigate('landing')}
             className="flex items-center gap-2 group"
           >
             <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
@@ -61,6 +61,12 @@ export function Header({ user, onLogin, onLogout, onNavigate, cartCount = 0, onC
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-6">
+            <button
+              onClick={() => onNavigate('landing')}
+              className="text-gray-700 hover:text-blue-600 transition-colors"
+            >
+              Trang chủ
+            </button>
             <button
               onClick={() => onNavigate('listing')}
               className="text-gray-700 hover:text-blue-600 transition-colors"
@@ -183,6 +189,15 @@ export function Header({ user, onLogin, onLogout, onNavigate, cartCount = 0, onC
         {showMobileMenu && (
           <div className="md:hidden mt-4 py-4 border-t border-gray-200">
             <nav className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  onNavigate('landing');
+                  setShowMobileMenu(false);
+                }}
+                className="text-left px-4 py-2 text-gray-700 hover:bg-gray-50 rounded-lg"
+              >
+                Trang chủ
+              </button>
               <button
                 onClick={() => {
                   onNavigate('listing');

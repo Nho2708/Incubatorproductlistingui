@@ -1,4 +1,4 @@
-import { ShoppingCart, Eye, Star, TrendingUp } from 'lucide-react';
+import { ShoppingCart, Eye } from 'lucide-react';
 import { Product } from '../App';
 
 type ProductCardProps = {
@@ -15,16 +15,6 @@ export function ProductCard({ product, onViewProduct, onAddToCart }: ProductCard
     }).format(price);
   };
 
-  const getCategoryLabel = (category: string) => {
-    const labels: Record<string, string> = {
-      'household': 'Hộ gia đình',
-      'small-farm': 'Trang trại nhỏ',
-      'medium-farm': 'Trang trại vừa',
-      'large-farm': 'Trang trại lớn',
-    };
-    return labels[category] || category;
-  };
-
   return (
     <div className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-shadow overflow-hidden border border-gray-100">
       {/* Image */}
@@ -39,6 +29,11 @@ export function ProductCard({ product, onViewProduct, onAddToCart }: ProductCard
             Đặt trước
           </div>
         )}
+        {!product.inStock && !product.preOrder && (
+          <div className="absolute top-3 left-3 bg-gray-500 text-white px-3 py-1 rounded-full text-sm">
+            Ngừng bán
+          </div>
+        )}
         {product.specs.aiMonitoring && (
           <div className="absolute top-3 right-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-3 py-1 rounded-full text-sm">
             AI
@@ -48,42 +43,31 @@ export function ProductCard({ product, onViewProduct, onAddToCart }: ProductCard
 
       {/* Content */}
       <div className="p-4">
-        {/* Category Badge */}
-        <div className="inline-block px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded mb-2">
-          {getCategoryLabel(product.category)}
-        </div>
-
         {/* Product Name */}
-        <h3 className="text-lg mb-2 line-clamp-1">{product.name}</h3>
+        <h3 className="text-lg mb-2 line-clamp-2">{product.name}</h3>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 gap-2 mb-3 text-sm">
-          <div className="flex items-center gap-1 text-gray-600">
-            <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-            <span>Sức chứa: {product.capacity}</span>
-          </div>
-          <div className="flex items-center gap-1 text-gray-600">
-            <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-            <span>Công suất: {product.power}W</span>
-          </div>
-        </div>
+        {/* Description */}
+        {product.description && (
+          <p className="text-sm text-gray-500 mb-3 line-clamp-2">{product.description}</p>
+        )}
 
-        {/* Hatch Rate */}
-        <div className="flex items-center gap-2 mb-3 p-2 bg-green-50 rounded-lg">
-          <TrendingUp size={16} className="text-green-600" />
-          <span className="text-sm text-green-700">
-            Tỉ lệ ấp nở: <strong>{product.hatchRate}%</strong>
-          </span>
-        </div>
-
-        {/* Rating */}
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex items-center gap-1">
-            <Star size={16} className="fill-yellow-400 text-yellow-400" />
-            <span className="text-sm">{product.rating}</span>
-          </div>
-          <span className="text-sm text-gray-500">({product.reviews} đánh giá)</span>
-          <span className="text-sm text-gray-400">• {product.soldCount} đã bán</span>
+        {/* Stats */}
+        <div className="flex flex-wrap gap-2 mb-3">
+          {product.capacity > 0 && (
+            <span className="px-2 py-1 bg-green-50 text-green-700 text-xs rounded">
+              {product.capacity} trứng
+            </span>
+          )}
+          {product.hatchRate > 0 && (
+            <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded">
+              Tỉ lệ nở: {product.hatchRate}%
+            </span>
+          )}
+          {product.rating > 0 && (
+            <span className="px-2 py-1 bg-yellow-50 text-yellow-700 text-xs rounded">
+              ★ {product.rating} ({product.reviews})
+            </span>
+          )}
         </div>
 
         {/* Price */}
@@ -103,10 +87,11 @@ export function ProductCard({ product, onViewProduct, onAddToCart }: ProductCard
           {onAddToCart && (
             <button
               onClick={() => onAddToCart(product)}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={!product.inStock && !product.preOrder}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ShoppingCart size={18} />
-              <span>Mua ngay</span>
+              <span>{product.preOrder ? 'Đặt trước' : 'Mua ngay'}</span>
             </button>
           )}
         </div>
