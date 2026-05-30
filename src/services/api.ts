@@ -25,7 +25,8 @@ export interface BaseResponse<T> {
 
 export interface PagedResult<T> {
   items: T[];
-  totalCount: number;
+  totalItems: number;
+  totalPages: number;
   page: number;
   pageSize: number;
 }
@@ -79,9 +80,36 @@ export interface ApiIncubatorModel {
   name: string;
   description?: string;
   unitPrice: number;
+  imageUrl?: string;
   status: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ModelConfigItem {
+  configId: string;
+  quantity?: number;
+  required?: boolean;
+  absoluteMin?: number;
+  absoluteMax?: number;
+}
+
+export interface CreateIncubatorModelPayload {
+  modelCode: string;
+  name: string;
+  description?: string;
+  unitPrice: number;
+  imageUrl?: string;
+  configs: ModelConfigItem[];
+}
+
+export interface UpdateIncubatorModelPayload {
+  modelCode?: string;
+  name?: string;
+  description?: string;
+  unitPrice?: number;
+  imageUrl?: string;
+  configs?: ModelConfigItem[];
 }
 
 export async function getPublicIncubatorModels(params?: {
@@ -117,6 +145,26 @@ export async function getIncubatorModelById(id: string) {
   return request<ApiIncubatorModel>(`/incubator-models/${id}`);
 }
 
+export async function createIncubatorModel(payload: CreateIncubatorModelPayload) {
+  return request<string>('/incubator-models', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateIncubatorModel(id: string, payload: UpdateIncubatorModelPayload) {
+  return request<boolean>(`/incubator-models/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteIncubatorModel(id: string) {
+  return request<boolean>(`/incubator-models/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 // ─── Orders ──────────────────────────────────────────────────────────────────
 
 export interface ApiOrderItem {
@@ -127,8 +175,19 @@ export interface ApiOrderItem {
 export interface CreateOrderResponse {
   orderId: string;
   orderCode?: string;
-  checkoutUrl?: string;
+  totalAmount: number;
+  paymentStatus: string;
+  paymentOrderCode?: number;
+  paymentLinkId?: string;
   qrCode?: string;
+  paymentLinkExpiredAt?: string;
+}
+
+export interface ApiOrderPaymentStatus {
+  orderId: string;
+  orderCode?: string;
+  paymentStatus: string;
+  paidAt?: string;
 }
 
 export async function createOrderCustomer(items: ApiOrderItem[]) {
@@ -161,6 +220,12 @@ export interface ApiSalesOrder {
   shippingAddress: string;
   totalAmount: number;
   paymentStatus: string;
+  paymentOrderCode?: number;
+  paymentLinkId?: string;
+  qrCode?: string;
+  paymentLinkCreatedAt?: string;
+  paymentLinkExpiredAt?: string;
+  paidAt?: string;
   status: string;
   createdAt: string;
 }
@@ -179,6 +244,29 @@ export async function getMyOrders(params?: {
 
 export async function cancelOrder(orderId: string) {
   return request<boolean>(`/orders/${orderId}/cancel`, { method: 'POST' });
+}
+
+export interface ApiSalesOrderItem {
+  id: string;
+  orderId: string;
+  incubatorModelId: string;
+  incubatorId?: string;
+  unitPrice: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface ApiSalesOrderDetail {
+  order: ApiSalesOrder;
+  items: ApiSalesOrderItem[];
+}
+
+export async function getOrderById(id: string) {
+  return request<ApiSalesOrderDetail>(`/orders/${id}`);
+}
+
+export async function getOrderPaymentStatus(id: string) {
+  return request<ApiOrderPaymentStatus>(`/orders/${id}/payment-status`);
 }
 
 // ─── Customer Profile ─────────────────────────────────────────────────────────

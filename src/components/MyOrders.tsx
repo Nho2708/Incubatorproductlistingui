@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Package, Truck, CheckCircle, Clock, Loader2, AlertCircle, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Package, Truck, CheckCircle, Clock, Loader2, AlertCircle, X, Eye } from 'lucide-react';
 import { getMyOrders, cancelOrder, ApiSalesOrder } from '../services/api';
 import { User } from '../App';
 
@@ -33,7 +34,8 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
   REFUNDED: 'Đã hoàn tiền',
 };
 
-export function MyOrders({ user }: MyOrdersProps) {
+export function MyOrders({ user: _user }: MyOrdersProps) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabStatus>('all');
   const [orders, setOrders] = useState<ApiSalesOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -180,6 +182,13 @@ export function MyOrders({ user }: MyOrdersProps) {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => navigate(`/orders/${order.id}`)}
+                        className="px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1.5"
+                      >
+                        <Eye size={15} />
+                        Chi tiết
+                      </button>
                       {canCancel && (
                         <button
                           onClick={() => handleCancel(order.id)}

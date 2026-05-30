@@ -4,7 +4,7 @@ import { Product } from '../App';
 import { User } from '../App';
 import { ProductCard } from './ProductCard';
 import { FilterPanel } from './FilterPanel';
-import { getIncubatorModels, ApiIncubatorModel } from '../services/api';
+import { getPublicIncubatorModels, ApiIncubatorModel } from '../services/api';
 
 export type FilterState = {
   capacities: number[];
@@ -31,7 +31,7 @@ function mapApiModelToProduct(model: ApiIncubatorModel): Product {
     capacity: 0,
     power: 0,
     price: model.unitPrice,
-    image: 'https://images.unsplash.com/photo-1569944405467-f040d1c3c7b0?w=800&q=80',
+    image: model.imageUrl || 'https://images.unsplash.com/photo-1569944405467-f040d1c3c7b0?w=800&q=80',
     category: 'household',
     hatchRate: 0,
     description: model.description || '',
@@ -76,11 +76,7 @@ export function ProductListing({ onViewProduct, onAddToCart }: ProductListingPro
       setLoading(true);
       setError('');
       try {
-        const res = await getIncubatorModels({
-          search: searchQuery || undefined,
-          page: 1,
-          pageSize: 100,
-        });
+        const res = await getPublicIncubatorModels({ search: searchQuery || undefined, page: 1, pageSize: 100 });
         if (cancelled) return;
         if (res.statusCode !== '200' || !res.data) {
           setError(res.message || 'Không thể tải danh sách sản phẩm.');
