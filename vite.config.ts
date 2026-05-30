@@ -3,8 +3,33 @@
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
 
+  function spaFallback() {
+    return {
+      name: 'spa-fallback',
+      configureServer(server: any) {
+        server.middlewares.use((req: any, _res: any, next: any) => {
+          const url: string = req.url ?? '/';
+          if (!url.startsWith('/@') && !url.includes('.')) {
+            req.url = '/index.html';
+          }
+          next();
+        });
+      },
+      configurePreviewServer(server: any) {
+        server.middlewares.use((req: any, _res: any, next: any) => {
+          const url: string = req.url ?? '/';
+          if (!url.startsWith('/@') && !url.includes('.')) {
+            req.url = '/index.html';
+          }
+          next();
+        });
+      },
+    };
+  }
+
   export default defineConfig({
-    plugins: [react()],
+    appType: 'spa',
+    plugins: [react(), spaFallback()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {

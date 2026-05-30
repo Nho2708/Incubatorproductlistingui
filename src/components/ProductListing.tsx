@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react';
-import { Search, SlidersHorizontal, X, User as UserIcon, LogOut, ShoppingBag } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Search, SlidersHorizontal, AlertCircle, Loader2 } from 'lucide-react';
 import { Product } from '../App';
 import { User } from '../App';
-import { products } from '../data/products';
 import { ProductCard } from './ProductCard';
 import { FilterPanel } from './FilterPanel';
+import { getPublicIncubatorModels, ApiIncubatorModel } from '../services/api';
 
 export type FilterState = {
   capacities: number[];
@@ -20,73 +20,96 @@ type ProductListingProps = {
   onViewProduct: (product: Product) => void;
   onAddToCart?: (product: Product) => void;
   user: User | null;
-  onLogin: (email: string, name: string) => void;
+  onLogin: () => void;
   onLogout: () => void;
 };
 
-export function ProductListing({ onViewProduct, onAddToCart, user, onLogin, onLogout }: ProductListingProps) {
+function mapApiModelToProduct(model: ApiIncubatorModel): Product {
+  return {
+    id: model.id,
+    name: model.name,
+    capacity: 0,
+    power: 0,
+    price: model.unitPrice,
+    image: model.imageUrl || 'https://images.unsplash.com/photo-1569944405467-f040d1c3c7b0?w=800&q=80',
+    category: 'household',
+    hatchRate: 0,
+    description: model.description || '',
+    specs: {
+      maxCapacity: 0,
+      tempRange: '',
+      humidityRange: '',
+      powerConsumption: '',
+      eggTurning: '',
+      aiMonitoring: false,
+      appConnection: false,
+    },
+    eggTypes: [],
+    automationLevel: 'semi-auto',
+    inStock: model.status === 'ACTIVE',
+    preOrder: model.status !== 'ACTIVE',
+    rating: 0,
+    reviews: 0,
+    soldCount: 0,
+  };
+}
+
+export function ProductListing({ onViewProduct, onAddToCart }: ProductListingProps) {
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [filters, setFilters] = useState<FilterState>({
     capacities: [],
     categories: [],
     eggTypes: [],
-    priceRange: [0, 20000000],
+    priceRange: [0, 100000000],
     automationLevels: [],
     availability: [],
     sortBy: 'popular',
   });
 
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await getPublicIncubatorModels({ search: searchQuery || undefined, page: 1, pageSize: 100 });
+        if (cancelled) return;
+        if (res.statusCode !== '200' || !res.data) {
+          setError(res.message || 'Không thể tải danh sách sản phẩm.');
+          return;
+        }
+        setProducts(res.data.items.map(mapApiModelToProduct));
+      } catch {
+        if (!cancelled) setError('Lỗi kết nối. Vui lòng thử lại.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
   const filteredProducts = useMemo(() => {
     let filtered = [...products];
 
-    // Search filter
-    if (searchQuery) {
-      filtered = filtered.filter(p =>
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.description.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-
-    // Capacity filter
-    if (filters.capacities.length > 0) {
-      filtered = filtered.filter(p => filters.capacities.includes(p.capacity));
-    }
-
-    // Category filter
-    if (filters.categories.length > 0) {
-      filtered = filtered.filter(p => filters.categories.includes(p.category));
-    }
-
-    // Egg types filter
-    if (filters.eggTypes.length > 0) {
-      filtered = filtered.filter(p =>
-        filters.eggTypes.some(type => p.eggTypes.includes(type))
-      );
-    }
-
-    // Price range filter
-    filtered = filtered.filter(
-      p => p.price >= filters.priceRange[0] && p.price <= filters.priceRange[1]
-    );
-
-    // Automation level filter
-    if (filters.automationLevels.length > 0) {
-      filtered = filtered.filter(p =>
-        filters.automationLevels.includes(p.automationLevel)
-      );
-    }
-
-    // Availability filter
     if (filters.availability.length > 0) {
-      filtered = filtered.filter(p => {
+      filtered = filtered.filter((p) => {
         if (filters.availability.includes('inStock') && p.inStock) return true;
         if (filters.availability.includes('preOrder') && p.preOrder) return true;
         return false;
       });
     }
 
-    // Sorting
+    filtered = filtered.filter(
+      (p) => p.price >= filters.priceRange[0] && p.price <= filters.priceRange[1]
+    );
+
     switch (filters.sortBy) {
       case 'price-asc':
         filtered.sort((a, b) => a.price - b.price);
@@ -94,24 +117,14 @@ export function ProductListing({ onViewProduct, onAddToCart, user, onLogin, onLo
       case 'price-desc':
         filtered.sort((a, b) => b.price - a.price);
         break;
-      case 'popular':
-        filtered.sort((a, b) => b.soldCount - a.soldCount);
-        break;
-      case 'rating':
-        filtered.sort((a, b) => b.rating - a.rating);
-        break;
     }
 
     return filtered;
-  }, [searchQuery, filters]);
+  }, [products, filters]);
 
-  const activeFiltersCount = 
-    filters.capacities.length +
-    filters.categories.length +
-    filters.eggTypes.length +
-    filters.automationLevels.length +
+  const activeFiltersCount =
     filters.availability.length +
-    (filters.priceRange[0] > 0 || filters.priceRange[1] < 20000000 ? 1 : 0);
+    (filters.priceRange[0] > 0 || filters.priceRange[1] < 100000000 ? 1 : 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -119,7 +132,7 @@ export function ProductListing({ onViewProduct, onAddToCart, user, onLogin, onLo
       <div className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <h1 className="text-3xl mb-4">Sản phẩm</h1>
-          
+
           {/* Search Bar */}
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
@@ -152,10 +165,9 @@ export function ProductListing({ onViewProduct, onAddToCart, user, onLogin, onLo
               onChange={(e) => setFilters({ ...filters, sortBy: e.target.value })}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="popular">Bán chạy nhất</option>
+              <option value="popular">Mặc định</option>
               <option value="price-asc">Giá tăng dần</option>
               <option value="price-desc">Giá giảm dần</option>
-              <option value="rating">Đánh giá cao nhất</option>
             </select>
           </div>
         </div>
@@ -172,14 +184,32 @@ export function ProductListing({ onViewProduct, onAddToCart, user, onLogin, onLo
 
       {/* Results Info */}
       <div className="max-w-7xl mx-auto px-4 py-4">
-        <p className="text-gray-600">
-          Tìm thấy <span className="font-semibold text-gray-900">{filteredProducts.length}</span> sản phẩm
-        </p>
+        {!loading && !error && (
+          <p className="text-gray-600">
+            Tìm thấy <span className="font-semibold text-gray-900">{filteredProducts.length}</span> sản phẩm
+          </p>
+        )}
       </div>
 
       {/* Product Grid */}
       <div className="max-w-7xl mx-auto px-4 pb-8">
-        {filteredProducts.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-24">
+            <Loader2 size={40} className="animate-spin text-blue-600" />
+            <span className="ml-3 text-gray-500 text-lg">Đang tải sản phẩm...</span>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center py-16 text-center">
+            <AlertCircle size={48} className="text-red-400 mb-4" />
+            <p className="text-gray-500 text-lg mb-4">{error}</p>
+            <button
+              onClick={() => setSearchQuery('')}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Thử lại
+            </button>
+          </div>
+        ) : filteredProducts.length === 0 ? (
           <div className="text-center py-16">
             <p className="text-gray-500 text-lg">Không tìm thấy sản phẩm phù hợp</p>
             <button
@@ -188,7 +218,7 @@ export function ProductListing({ onViewProduct, onAddToCart, user, onLogin, onLo
                   capacities: [],
                   categories: [],
                   eggTypes: [],
-                  priceRange: [0, 20000000],
+                  priceRange: [0, 100000000],
                   automationLevels: [],
                   availability: [],
                   sortBy: 'popular',
@@ -202,7 +232,7 @@ export function ProductListing({ onViewProduct, onAddToCart, user, onLogin, onLo
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredProducts.map(product => (
+            {filteredProducts.map((product) => (
               <ProductCard
                 key={product.id}
                 product={product}
