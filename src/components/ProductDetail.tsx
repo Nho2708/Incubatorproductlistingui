@@ -19,8 +19,6 @@ import {
   Home,
 } from 'lucide-react';
 import { Product, User } from '../App';
-import { products } from '../data/products';
-import { AuthModal } from './AuthModal';
 
 type ProductDetailProps = {
   product: Product;
@@ -28,13 +26,12 @@ type ProductDetailProps = {
   onPurchase: (product: Product, quantity: number, type: 'deposit' | 'full') => void;
   onAddToCart?: (product: Product, quantity: number) => void;
   user: User | null;
-  onLogin: (email: string, name: string) => void;
+  onLogin: () => void;
 };
 
 export function ProductDetail({ product, onBack, onPurchase, onAddToCart, user, onLogin }: ProductDetailProps) {
   const [quantity, setQuantity] = useState(1);
-  const [activeTab, setActiveTab] = useState<'specs' | 'compare' | 'reviews'>('specs');
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'specs' | 'reviews'>('specs');
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('vi-VN', {
@@ -45,15 +42,11 @@ export function ProductDetail({ product, onBack, onPurchase, onAddToCart, user, 
 
   const handlePurchaseClick = (type: 'deposit' | 'full') => {
     if (!user) {
-      setShowAuthModal(true);
+      onLogin();
       return;
     }
     onPurchase(product, quantity, type);
   };
-
-  const similarProducts = products.filter(
-    p => p.id !== product.id && Math.abs(p.capacity - product.capacity) <= 100
-  ).slice(0, 3);
 
   const reviews = [
     {
@@ -96,14 +89,6 @@ export function ProductDetail({ product, onBack, onPurchase, onAddToCart, user, 
           </button>
         </div>
       </div>
-
-      {/* Auth Modal */}
-      {showAuthModal && (
-        <AuthModal
-          onClose={() => setShowAuthModal(false)}
-          onLogin={onLogin}
-        />
-      )}
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Hero Section */}
@@ -289,16 +274,6 @@ export function ProductDetail({ product, onBack, onPurchase, onAddToCart, user, 
                 Thông số kỹ thuật
               </button>
               <button
-                onClick={() => setActiveTab('compare')}
-                className={`flex-1 px-6 py-4 ${
-                  activeTab === 'compare'
-                    ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-600'
-                }`}
-              >
-                So sánh
-              </button>
-              <button
                 onClick={() => setActiveTab('reviews')}
                 className={`flex-1 px-6 py-4 ${
                   activeTab === 'reviews'
@@ -406,74 +381,6 @@ export function ProductDetail({ product, onBack, onPurchase, onAddToCart, user, 
                     </li>
                   </ul>
                 </div>
-              </div>
-            )}
-
-            {/* Compare Tab */}
-            {activeTab === 'compare' && (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4">Thông số</th>
-                      <th className="text-center py-3 px-4 bg-blue-50">{product.name}</th>
-                      {similarProducts.map(p => (
-                        <th key={p.id} className="text-center py-3 px-4">{p.name}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-gray-100">
-                      <td className="py-3 px-4">Sức chứa</td>
-                      <td className="text-center py-3 px-4 bg-blue-50 font-semibold">
-                        {product.capacity} trứng
-                      </td>
-                      {similarProducts.map(p => (
-                        <td key={p.id} className="text-center py-3 px-4">{p.capacity} trứng</td>
-                      ))}
-                    </tr>
-                    <tr className="border-b border-gray-100">
-                      <td className="py-3 px-4">Giá</td>
-                      <td className="text-center py-3 px-4 bg-blue-50 font-semibold">
-                        {formatPrice(product.price)}
-                      </td>
-                      {similarProducts.map(p => (
-                        <td key={p.id} className="text-center py-3 px-4">{formatPrice(p.price)}</td>
-                      ))}
-                    </tr>
-                    <tr className="border-b border-gray-100">
-                      <td className="py-3 px-4">Tỉ lệ nở</td>
-                      <td className="text-center py-3 px-4 bg-blue-50 font-semibold">
-                        {product.hatchRate}%
-                      </td>
-                      {similarProducts.map(p => (
-                        <td key={p.id} className="text-center py-3 px-4">{p.hatchRate}%</td>
-                      ))}
-                    </tr>
-                    <tr className="border-b border-gray-100">
-                      <td className="py-3 px-4">AI Monitoring</td>
-                      <td className="text-center py-3 px-4 bg-blue-50">
-                        {product.specs.aiMonitoring ? '✓' : '✗'}
-                      </td>
-                      {similarProducts.map(p => (
-                        <td key={p.id} className="text-center py-3 px-4">
-                          {p.specs.aiMonitoring ? '✓' : '✗'}
-                        </td>
-                      ))}
-                    </tr>
-                    <tr className="border-b border-gray-100">
-                      <td className="py-3 px-4">Kết nối App</td>
-                      <td className="text-center py-3 px-4 bg-blue-50">
-                        {product.specs.appConnection ? '✓' : '✗'}
-                      </td>
-                      {similarProducts.map(p => (
-                        <td key={p.id} className="text-center py-3 px-4">
-                          {p.specs.appConnection ? '✓' : '✗'}
-                        </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
               </div>
             )}
 

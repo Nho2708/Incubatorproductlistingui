@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { ProductListing } from './components/ProductListing';
-import { ProductDetail } from './components/ProductDetail';
 import { PurchaseFlow } from './components/PurchaseFlow';
 import { AIAssistant } from './components/AIAssistant';
 import { Header } from './components/Header';
@@ -12,6 +12,11 @@ import { AboutUs } from './components/AboutUs';
 import { Guide } from './components/Guide';
 import { Contact } from './components/Contact';
 import { Cart, CartItem } from './components/Cart';
+import { LandingPage } from './components/LandingPage';
+import { ProductDetailPage } from './pages/ProductDetailPage';
+import { PurchaseFlowPage } from './pages/PurchaseFlowPage';
+import { OrderDetailPage } from './pages/OrderDetailPage';
+import { tokenStorage, decodeJwt } from './services/api';
 
 export type Product = {
   id: string;
@@ -53,27 +58,65 @@ export type Order = {
 };
 
 export type User = {
-  email: string;
+  id: string;
+  username: string;
   name: string;
+  email: string;
+  role: string;
 };
 
+function parseUserFromToken(token: string): User | null {
+  const claims = decodeJwt(token);
+  const sub = claims['sub'];
+  const uniqueName =
+    claims['unique_name'] ||
+    claims['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'] ||
+    '';
+  const role =
+    claims['role'] ||
+    claims['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'] ||
+    'CUSTOMER';
+  if (!sub) return null;
+  return { id: sub, username: uniqueName, name: uniqueName, email: '', role };
+}
+
+const VIEW_TO_PATH: Record<string, string> = {
+  landing: '/',
+  listing: '/products',
+  orders: '/orders',
+  profile: '/profile',
+  about: '/about',
+  guide: '/guide',
+  contact: '/contact',
+  cart: '/cart',
+};
+
+function AuthGuard({ user, authLoading, children }: { user: User | null; authLoading: boolean; children: ReactNode }) {
+  if (authLoading) return <div className="flex items-center justify-center min-h-[60vh]"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>;
+  if (!user) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 function App() {
-  const [view, setView] = useState<'listing' | 'detail' | 'purchase' | 'orders' | 'profile' | 'about' | 'guide' | 'contact' | 'cart'>('listing');
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
+  const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
-  const handleViewProduct = (product: Product) => {
-    setSelectedProduct(product);
-    setView('detail');
-  };
+  useEffect(() => {
+    const token = tokenStorage.get();
+    if (token) {
+      const parsed = parseUserFromToken(token);
+      if (parsed) setUser(parsed);
+    }
+    setAuthLoading(false);
+  }, []);
 
   const handleAddToCart = (product: Product, quantity: number = 1) => {
     setCartItems((prev) => {
-      const existingItem = prev.find((item) => item.product.id === product.id);
-      if (existingItem) {
+      const existing = prev.find((item) => item.product.id === product.id);
+      if (existing) {
         return prev.map((item) =>
           item.product.id === product.id
             ? { ...item, quantity: item.quantity + quantity }
@@ -82,7 +125,7 @@ function App() {
       }
       return [...prev, { product, quantity }];
     });
-    setView('cart');
+    navigate('/cart');
   };
 
   const handleUpdateCartQuantity = (productId: string, quantity: number) => {
@@ -102,76 +145,45 @@ function App() {
       setShowAuthModal(true);
       return;
     }
-
-    // Create order from cart items
+    if (cartItems.length === 0) return;
     const total = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
-    
-    // For now, just create order with first item (in real app, would handle multiple items)
-    if (cartItems.length > 0) {
-      const order: Order = {
-        id: `ORD-${Date.now()}`,
-        product: cartItems[0].product,
-        quantity: cartItems.reduce((sum, item) => sum + item.quantity, 0),
-        total,
-        status: 'pending',
-        purchaseType: type,
-      };
-
-      if (type === 'deposit') {
-        order.deposit = total * 0.3;
-        order.remaining = total - order.deposit;
-      }
-
-      setCurrentOrder(order);
-      setCartItems([]);
-      setView('purchase');
-    }
-  };
-
-  const handlePurchase = (product: Product, quantity: number, type: 'deposit' | 'full') => {
-    const total = product.price * quantity;
     const order: Order = {
       id: `ORD-${Date.now()}`,
-      product,
-      quantity,
+      product: cartItems[0].product,
+      quantity: cartItems.reduce((sum, item) => sum + item.quantity, 0),
       total,
       status: 'pending',
       purchaseType: type,
     };
-
     if (type === 'deposit') {
-      order.deposit = total * 0.3; // 30% deposit
+      order.deposit = total * 0.3;
       order.remaining = total - order.deposit;
     }
-
-    setCurrentOrder(order);
-    setView('purchase');
+    setCartItems([]);
+    navigate('/purchase', { state: { order } });
   };
 
-  const handleBackToListing = () => {
-    setView('listing');
-    setSelectedProduct(null);
-    setCurrentOrder(null);
-  };
-
-  const handleLogin = (email: string, name: string) => {
-    setUser({ email, name });
+  const handleLogin = (loggedInUser: User) => {
+    setUser(loggedInUser);
     setShowAuthModal(false);
   };
 
   const handleLogout = () => {
+    tokenStorage.remove();
     setUser(null);
-    setView('listing');
+    navigate('/');
   };
 
-  const handleNavigate = (newView: string) => {
-    setView(newView as any);
+  const handleNavigate = (view: string) => {
+    navigate(VIEW_TO_PATH[view] ?? '/');
   };
 
-  const handleUpdateProfile = (data: any) => {
-    if (user) {
-      setUser({ ...user, name: data.name, email: data.email });
-    }
+  const handleUpdateProfile = (data: { name: string; email: string }) => {
+    if (user) setUser({ ...user, name: data.name, email: data.email });
+  };
+
+  const handleViewProduct = (product: Product) => {
+    navigate(`/products/${product.id}`, { state: { product } });
   };
 
   return (
@@ -182,59 +194,88 @@ function App() {
         onLogout={handleLogout}
         onNavigate={handleNavigate}
         cartCount={cartItems.length}
-        onCartClick={() => setView('cart')}
+        onCartClick={() => navigate('/cart')}
       />
 
       <main className="flex-1">
-        {view === 'listing' && (
-          <ProductListing 
-            onViewProduct={handleViewProduct}
-            onAddToCart={handleAddToCart}
-            user={user}
-            onLogin={handleLogin}
-            onLogout={handleLogout}
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <LandingPage
+                onExplore={() => navigate('/products')}
+                onLogin={() => setShowAuthModal(true)}
+              />
+            }
           />
-        )}
-        {view === 'detail' && selectedProduct && (
-          <ProductDetail
-            product={selectedProduct}
-            onBack={handleBackToListing}
-            onPurchase={handlePurchase}
-            onAddToCart={handleAddToCart}
-            user={user}
-            onLogin={handleLogin}
+          <Route
+            path="/products"
+            element={
+              <ProductListing
+                onViewProduct={handleViewProduct}
+                onAddToCart={handleAddToCart}
+                user={user}
+                onLogin={() => setShowAuthModal(true)}
+                onLogout={handleLogout}
+              />
+            }
           />
-        )}
-        {view === 'purchase' && currentOrder && (
-          <PurchaseFlow
-            order={currentOrder}
-            onBack={handleBackToListing}
-            user={user}
+          <Route
+            path="/products/:id"
+            element={
+              <ProductDetailPage
+                user={user}
+                onAddToCart={handleAddToCart}
+                onLogin={() => setShowAuthModal(true)}
+              />
+            }
           />
-        )}
-        {view === 'orders' && user && (
-          <MyOrders user={user} />
-        )}
-        {view === 'profile' && user && (
-          <Profile user={user} onUpdateProfile={handleUpdateProfile} />
-        )}
-        {view === 'about' && <AboutUs />}
-        {view === 'guide' && <Guide />}
-        {view === 'contact' && <Contact />}
-        {view === 'cart' && (
-          <Cart
-            items={cartItems}
-            onUpdateQuantity={handleUpdateCartQuantity}
-            onRemoveItem={handleRemoveFromCart}
-            onCheckout={handleCartCheckout}
-            onViewProduct={handleViewProduct}
-            onContinueShopping={() => setView('listing')}
+          <Route
+            path="/cart"
+            element={
+              <Cart
+                items={cartItems}
+                onUpdateQuantity={handleUpdateCartQuantity}
+                onRemoveItem={handleRemoveFromCart}
+                onCheckout={handleCartCheckout}
+                onViewProduct={handleViewProduct}
+                onContinueShopping={() => navigate('/products')}
+              />
+            }
           />
-        )}
+          <Route path="/purchase" element={<PurchaseFlowPage user={user} />} />
+          <Route
+            path="/orders"
+            element={
+              <AuthGuard user={user} authLoading={authLoading}>
+                <MyOrders user={user!} />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/orders/:id"
+            element={
+              <AuthGuard user={user} authLoading={authLoading}>
+                <OrderDetailPage user={user!} />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <AuthGuard user={user} authLoading={authLoading}>
+                <Profile user={user!} onUpdateProfile={handleUpdateProfile} />
+              </AuthGuard>
+            }
+          />
+          <Route path="/about" element={<AboutUs />} />
+          <Route path="/guide" element={<Guide />} />
+          <Route path="/contact" element={<Contact />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
 
       <Footer onNavigate={handleNavigate} />
-
       <AIAssistant onProductSelect={handleViewProduct} />
 
       {showAuthModal && (

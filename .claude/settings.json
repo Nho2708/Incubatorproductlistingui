@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(**)",
+      "WebFetch(https://api-incusmart.io.vn/**)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\GIGA\\source\\repos\\IncuSmart"
+    ]
+  }
+}
