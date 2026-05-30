@@ -356,21 +356,30 @@ export function PurchaseFlow({ order, onBack, user }: PurchaseFlowProps) {
                     : `Tổng thanh toán ${formatPrice(paymentAmount)}`}
                 </p>
 
-                {/* PayOS payment link */}
-                {orderResult?.checkoutUrl && (
+                {/* PayOS payment */}
+                {(orderResult?.qrCode || orderResult?.checkoutUrl) && (
                   <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                     <p className="text-sm text-blue-800 mb-3 font-semibold">
-                      Thanh toán trực tuyến qua PayOS
+                      Quét mã QR để thanh toán qua PayOS
                     </p>
-                    <a
-                      href={orderResult.checkoutUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      <ExternalLink size={18} />
-                      <span>Thanh toán ngay</span>
-                    </a>
+                    {orderResult.qrCode && (
+                      <img
+                        src={orderResult.qrCode}
+                        alt="QR thanh toán"
+                        className="mx-auto mb-3 w-48 h-48 object-contain"
+                      />
+                    )}
+                    {orderResult.checkoutUrl && (
+                      <a
+                        href={orderResult.checkoutUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <ExternalLink size={18} />
+                        <span>Hoặc thanh toán qua trình duyệt</span>
+                      </a>
+                    )}
                   </div>
                 )}
 

@@ -128,6 +128,7 @@ export interface CreateOrderResponse {
   orderId: string;
   orderCode?: string;
   checkoutUrl?: string;
+  qrCode?: string;
 }
 
 export async function createOrderCustomer(items: ApiOrderItem[]) {
