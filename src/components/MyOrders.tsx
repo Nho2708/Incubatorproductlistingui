@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Package, Truck, CheckCircle, Clock, Loader2, AlertCircle, X } from 'lucide-react';
-import { getMyOrders, cancelOrder, ApiSalesOrder } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { Package, Truck, CheckCircle, Clock, Loader2, AlertCircle, X, Eye, Link } from 'lucide-react';
+import { getMyOrders, cancelOrder, claimGuestOrder, ApiSalesOrder } from '../services/api';
 import { User } from '../App';
 
 type MyOrdersProps = {
@@ -33,12 +34,18 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
   REFUNDED: 'Đã hoàn tiền',
 };
 
-export function MyOrders({ user }: MyOrdersProps) {
+export function MyOrders({ user: _user }: MyOrdersProps) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabStatus>('all');
   const [orders, setOrders] = useState<ApiSalesOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [showClaimModal, setShowClaimModal] = useState(false);
+  const [claimForm, setClaimForm] = useState({ orderCode: '', verificationPass: '' });
+  const [claimLoading, setClaimLoading] = useState(false);
+  const [claimError, setClaimError] = useState('');
+  const [claimSuccess, setClaimSuccess] = useState(false);
 
   const fetchOrders = async (status?: string) => {
     setLoading(true);
@@ -84,6 +91,30 @@ export function MyOrders({ user }: MyOrdersProps) {
     }
   };
 
+  const handleClaim = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setClaimLoading(true);
+    setClaimError('');
+    try {
+      const res = await claimGuestOrder(claimForm.orderCode.trim(), claimForm.verificationPass);
+      if (res.statusCode === '200') {
+        setClaimSuccess(true);
+        fetchOrders();
+        setTimeout(() => {
+          setShowClaimModal(false);
+          setClaimSuccess(false);
+          setClaimForm({ orderCode: '', verificationPass: '' });
+        }, 2000);
+      } else {
+        setClaimError(res.message || 'Không thể nhận đơn hàng. Kiểm tra lại mã đơn và mã xác nhận.');
+      }
+    } catch {
+      setClaimError('Lỗi kết nối. Vui lòng thử lại.');
+    } finally {
+      setClaimLoading(false);
+    }
+  };
+
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
   };
@@ -100,10 +131,86 @@ export function MyOrders({ user }: MyOrdersProps) {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4">
+        {/* Claim Modal */}
+        {showClaimModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setShowClaimModal(false)} />
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-lg">Nhận đơn hàng khách</p>
+                  <p className="text-blue-100 text-sm">Liên kết đơn đặt trước khi có tài khoản</p>
+                </div>
+                <button onClick={() => setShowClaimModal(false)} className="p-1 hover:bg-white/20 rounded-lg">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-6">
+                {claimSuccess ? (
+                  <div className="text-center py-4">
+                    <CheckCircle size={48} className="text-green-500 mx-auto mb-3" />
+                    <p className="font-semibold text-gray-900">Nhận đơn thành công!</p>
+                    <p className="text-sm text-gray-500 mt-1">Đơn hàng đã được thêm vào tài khoản.</p>
+                  </div>
+                ) : (
+                  <form onSubmit={handleClaim} className="space-y-4">
+                    {claimError && (
+                      <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                        <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                        <span>{claimError}</span>
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">Mã đơn hàng <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        required
+                        value={claimForm.orderCode}
+                        onChange={(e) => setClaimForm({ ...claimForm, orderCode: e.target.value })}
+                        placeholder="VD: ORD-12345678"
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">Mã xác nhận <span className="text-red-500">*</span></label>
+                      <p className="text-xs text-gray-500 mb-1.5">Mã bạn đã tạo khi đặt đơn khách (tối thiểu 6 ký tự)</p>
+                      <input
+                        type="text"
+                        required
+                        minLength={6}
+                        value={claimForm.verificationPass}
+                        onChange={(e) => setClaimForm({ ...claimForm, verificationPass: e.target.value })}
+                        placeholder="Mã xác nhận của bạn"
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={claimLoading}
+                      className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-60 flex items-center justify-center gap-2"
+                    >
+                      {claimLoading ? <><Loader2 size={18} className="animate-spin" />Đang xử lý...</> : 'Nhận đơn hàng'}
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl mb-2">Đơn hàng của tôi</h1>
-          <p className="text-gray-600">Quản lý và theo dõi đơn hàng của bạn</p>
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <div>
+            <h1 className="text-3xl mb-1">Đơn hàng của tôi</h1>
+            <p className="text-gray-600 text-sm">Quản lý và theo dõi đơn hàng của bạn</p>
+          </div>
+          <button
+            onClick={() => { setClaimError(''); setClaimSuccess(false); setShowClaimModal(true); }}
+            className="flex items-center gap-2 px-4 py-2.5 border border-blue-300 text-blue-600 rounded-xl hover:bg-blue-50 transition-colors font-medium text-sm"
+          >
+            <Link size={16} />
+            Nhận đơn khách
+          </button>
         </div>
 
         {/* Tabs */}
@@ -180,6 +287,13 @@ export function MyOrders({ user }: MyOrdersProps) {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => navigate(`/orders/${order.id}`)}
+                        className="px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1.5"
+                      >
+                        <Eye size={15} />
+                        Chi tiết
+                      </button>
                       {canCancel && (
                         <button
                           onClick={() => handleCancel(order.id)}

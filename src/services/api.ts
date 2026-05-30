@@ -25,7 +25,8 @@ export interface BaseResponse<T> {
 
 export interface PagedResult<T> {
   items: T[];
-  totalCount: number;
+  totalItems: number;
+  totalPages: number;
   page: number;
   pageSize: number;
 }
@@ -79,9 +80,36 @@ export interface ApiIncubatorModel {
   name: string;
   description?: string;
   unitPrice: number;
+  imageUrl?: string;
   status: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ModelConfigItem {
+  configId: string;
+  quantity?: number;
+  required?: boolean;
+  absoluteMin?: number;
+  absoluteMax?: number;
+}
+
+export interface CreateIncubatorModelPayload {
+  modelCode: string;
+  name: string;
+  description?: string;
+  unitPrice: number;
+  imageUrl?: string;
+  configs: ModelConfigItem[];
+}
+
+export interface UpdateIncubatorModelPayload {
+  modelCode?: string;
+  name?: string;
+  description?: string;
+  unitPrice?: number;
+  imageUrl?: string;
+  configs?: ModelConfigItem[];
 }
 
 export async function getPublicIncubatorModels(params?: {
@@ -117,6 +145,26 @@ export async function getIncubatorModelById(id: string) {
   return request<ApiIncubatorModel>(`/incubator-models/${id}`);
 }
 
+export async function createIncubatorModel(payload: CreateIncubatorModelPayload) {
+  return request<string>('/incubator-models', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateIncubatorModel(id: string, payload: UpdateIncubatorModelPayload) {
+  return request<boolean>(`/incubator-models/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteIncubatorModel(id: string) {
+  return request<boolean>(`/incubator-models/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 // ─── Orders ──────────────────────────────────────────────────────────────────
 
 export interface ApiOrderItem {
@@ -127,7 +175,19 @@ export interface ApiOrderItem {
 export interface CreateOrderResponse {
   orderId: string;
   orderCode?: string;
-  checkoutUrl?: string;
+  totalAmount: number;
+  paymentStatus: string;
+  paymentOrderCode?: number;
+  paymentLinkId?: string;
+  qrCode?: string;
+  paymentLinkExpiredAt?: string;
+}
+
+export interface ApiOrderPaymentStatus {
+  orderId: string;
+  orderCode?: string;
+  paymentStatus: string;
+  paidAt?: string;
 }
 
 export async function createOrderCustomer(items: ApiOrderItem[]) {
@@ -160,6 +220,12 @@ export interface ApiSalesOrder {
   shippingAddress: string;
   totalAmount: number;
   paymentStatus: string;
+  paymentOrderCode?: number;
+  paymentLinkId?: string;
+  qrCode?: string;
+  paymentLinkCreatedAt?: string;
+  paymentLinkExpiredAt?: string;
+  paidAt?: string;
   status: string;
   createdAt: string;
 }
@@ -176,8 +242,46 @@ export async function getMyOrders(params?: {
   return request<PagedResult<ApiSalesOrder>>(`/orders?${query}`);
 }
 
+export async function claimGuestOrder(orderCode: string, verificationPass: string) {
+  return request<boolean>('/orders/guest/claim', {
+    method: 'POST',
+    body: JSON.stringify({ orderCode, verificationPass }),
+  });
+}
+
 export async function cancelOrder(orderId: string) {
   return request<boolean>(`/orders/${orderId}/cancel`, { method: 'POST' });
+}
+
+export async function shipOrder(orderId: string) {
+  return request<boolean>(`/orders/${orderId}/ship`, { method: 'POST' });
+}
+
+export async function completeOrder(orderId: string) {
+  return request<boolean>(`/orders/${orderId}/complete`, { method: 'POST' });
+}
+
+export interface ApiSalesOrderItem {
+  id: string;
+  orderId: string;
+  incubatorModelId: string;
+  incubatorId?: string;
+  unitPrice: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface ApiSalesOrderDetail {
+  order: ApiSalesOrder;
+  items: ApiSalesOrderItem[];
+}
+
+export async function getOrderById(id: string) {
+  return request<ApiSalesOrderDetail>(`/orders/${id}`);
+}
+
+export async function getOrderPaymentStatus(id: string) {
+  return request<ApiOrderPaymentStatus>(`/orders/${id}/payment-status`);
 }
 
 // ─── Customer Profile ─────────────────────────────────────────────────────────
@@ -201,4 +305,75 @@ export async function updateMyProfile(address: string) {
     method: 'PUT',
     body: JSON.stringify({ address }),
   });
+}
+
+// ─── Incubators (Máy ấp) ──────────────────────────────────────────────────────
+
+export interface ApiIncubatorItem {
+  id: string;
+  modelId: string;
+  modelName?: string;
+  modelImageUrl?: string;
+  serialNumber?: string;
+  customerId?: string;
+  activatedAt?: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface ApiHatchingSeason {
+  id: string;
+  incubatorId: string;
+  templateId?: string;
+  seasonCode: string;
+  name?: string;
+  eggType?: string;
+  startDate: string;
+  endDate?: string;
+  totalEggs?: number;
+  successCount: number;
+  failCount: number;
+  notes?: string;
+  status: string;
+}
+
+export async function getMyIncubators(params?: { status?: string; page?: number; pageSize?: number }) {
+  const query = new URLSearchParams();
+  if (params?.status) query.set('status', params.status);
+  query.set('page', String(params?.page ?? 1));
+  query.set('pageSize', String(params?.pageSize ?? 50));
+  return request<PagedResult<ApiIncubatorItem>>(`/incubators?${query}`);
+}
+
+export async function getIncubatorHatchingSeasons(incubatorId: string, status?: string) {
+  const query = new URLSearchParams();
+  if (status) query.set('status', status);
+  return request<ApiHatchingSeason[]>(`/incubators/${incubatorId}/hatching-seasons?${query}`);
+}
+
+// ─── Hatching Templates ───────────────────────────────────────────────────────
+
+export interface ApiHatchingSeasonTemplate {
+  id: string;
+  customerId?: string;
+  name: string;
+  description?: string;
+  totalDays: number;
+  eggType?: string;
+  isActive: boolean;
+  createdByType: string;
+  status: string;
+  createdAt: string;
+}
+
+export async function getHatchingSeasonTemplates(params?: {
+  createdByType?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const query = new URLSearchParams();
+  if (params?.createdByType) query.set('createdByType', params.createdByType);
+  query.set('page', String(params?.page ?? 1));
+  query.set('pageSize', String(params?.pageSize ?? 50));
+  return request<PagedResult<ApiHatchingSeasonTemplate>>(`/hatching-season-templates?${query}`);
 }

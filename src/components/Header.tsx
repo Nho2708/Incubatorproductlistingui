@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShoppingCart, User as UserIcon, LogOut, ShoppingBag, Phone, Mail, Menu, X } from 'lucide-react';
+import { ShoppingCart, User as UserIcon, LogOut, ShoppingBag, Phone, Mail, Menu, X, Cpu, BookOpen } from 'lucide-react';
 import { User } from '../App';
 
 type HeaderProps = {
@@ -131,20 +131,28 @@ export function Header({ user, onLogin, onLogout, onNavigate, cartCount = 0, onC
                         <p className="text-sm text-gray-500 truncate">{user.email}</p>
                       </div>
                       <button
-                        onClick={() => {
-                          onNavigate('orders');
-                          setShowUserMenu(false);
-                        }}
+                        onClick={() => { onNavigate('orders'); setShowUserMenu(false); }}
                         className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3"
                       >
                         <ShoppingBag size={18} className="text-gray-600" />
                         <span>Đơn hàng của tôi</span>
                       </button>
                       <button
-                        onClick={() => {
-                          onNavigate('profile');
-                          setShowUserMenu(false);
-                        }}
+                        onClick={() => { onNavigate('my-incubators'); setShowUserMenu(false); }}
+                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3"
+                      >
+                        <Cpu size={18} className="text-gray-600" />
+                        <span>Máy ấp của tôi</span>
+                      </button>
+                      <button
+                        onClick={() => { onNavigate('templates'); setShowUserMenu(false); }}
+                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3"
+                      >
+                        <BookOpen size={18} className="text-gray-600" />
+                        <span>Template ấp</span>
+                      </button>
+                      <button
+                        onClick={() => { onNavigate('profile'); setShowUserMenu(false); }}
                         className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3"
                       >
                         <UserIcon size={18} className="text-gray-600" />
