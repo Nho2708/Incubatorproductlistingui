@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import QRCode from 'react-qr-code';
-import { CheckCircle, Loader2, X, Clock } from 'lucide-react';
-import { getOrderPaymentStatus } from '../services/api';
+import { CheckCircle, Loader2, X, Clock, RefreshCw, AlertCircle } from 'lucide-react';
+import { getOrderPaymentStatus, recreateOrderPayment } from '../services/api';
 
 export type PaymentModalProps = {
   orderId: string;
@@ -16,35 +16,94 @@ export type PaymentModalProps = {
 export function PaymentModal({
   orderId,
   orderCode,
-  qrCode,
-  amount,
-  expiresAt,
+  qrCode: initialQrCode,
+  amount: initialAmount,
+  expiresAt: initialExpiresAt,
   onPaid,
   onClose,
 }: PaymentModalProps) {
   const [pollStatus, setPollStatus] = useState<'waiting' | 'paid'>('waiting');
+  // QR/amount/expiry giữ trong state để nút "Tạo lại mã QR" có thể cập nhật khi hết hạn
+  const [qrCode, setQrCode] = useState(initialQrCode);
+  const [amount, setAmount] = useState(initialAmount);
+  const [expiresAt, setExpiresAt] = useState(initialExpiresAt);
+  const [expired, setExpired] = useState(false);
+  const [recreating, setRecreating] = useState(false);
+  const [recreateError, setRecreateError] = useState('');
   const onPaidRef = useRef(onPaid);
   onPaidRef.current = onPaid;
 
   const formatPrice = (p: number) =>
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(p);
 
+  // Đánh dấu hết hạn khi qua mốc expiresAt
   useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await getOrderPaymentStatus(orderId);
-        if (res.statusCode === '200' && res.data?.paymentStatus === 'PAID') {
-          clearInterval(interval);
-          setPollStatus('paid');
-          setTimeout(() => onPaidRef.current(), 1500);
-        }
-      } catch {
-        // keep polling silently on network errors
+    if (!expiresAt) {
+      setExpired(false);
+      return;
+    }
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    if (ms <= 0) {
+      setExpired(true);
+      return;
+    }
+    setExpired(false);
+    const timer = setTimeout(() => setExpired(true), ms);
+    return () => clearTimeout(timer);
+  }, [expiresAt]);
+
+  // Gọi check 1 lần, trả về true nếu đã thanh toán (để dừng polling)
+  const checkPaymentStatus = async () => {
+    try {
+      const res = await getOrderPaymentStatus(orderId);
+      if (res.statusCode === '200' && res.data?.paymentStatus === 'PAID') {
+        setPollStatus('paid');
+        setTimeout(() => onPaidRef.current(), 1500);
+        return true;
       }
+    } catch {
+      // bỏ qua lỗi mạng, lần poll sau thử lại
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    if (pollStatus === 'paid' || expired) return;
+    let stopped = false;
+    // Check ngay khi mở modal (hoặc sau khi tạo lại QR), không đợi 5s
+    checkPaymentStatus();
+    const interval = setInterval(async () => {
+      if (stopped) return;
+      const paid = await checkPaymentStatus();
+      if (paid) clearInterval(interval);
     }, 5000);
 
-    return () => clearInterval(interval);
-  }, [orderId]);
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, pollStatus, expired]);
+
+  const handleRecreate = async () => {
+    setRecreating(true);
+    setRecreateError('');
+    try {
+      const res = await recreateOrderPayment(orderId);
+      if ((res.statusCode === '200' || res.statusCode === '201') && res.data) {
+        setQrCode(res.data.qrCode);
+        setAmount(res.data.totalAmount || amount);
+        setExpiresAt(res.data.paymentLinkExpiredAt);
+        setExpired(false);
+      } else {
+        setRecreateError(res.message || 'Không thể tạo lại mã QR. Vui lòng thử lại.');
+      }
+    } catch {
+      setRecreateError('Lỗi kết nối. Vui lòng thử lại.');
+    } finally {
+      setRecreating(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -94,13 +153,21 @@ export function PaymentModal({
               {/* QR Code */}
               {qrCode ? (
                 <div className="flex justify-center mb-4">
-                  <div className="p-4 border-2 border-blue-200 rounded-xl bg-white">
+                  <div className="relative p-4 border-2 border-blue-200 rounded-xl bg-white">
                     <QRCode
                       value={qrCode}
                       size={200}
                       bgColor="#ffffff"
                       fgColor="#1a1a1a"
+                      className={expired ? 'opacity-20 blur-[2px]' : ''}
                     />
+                    {expired && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="px-3 py-1 bg-red-600 text-white text-sm font-semibold rounded-lg">
+                          Đã hết hạn
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -110,20 +177,41 @@ export function PaymentModal({
               )}
 
               {/* Expiry */}
-              {expiresAt && (
+              {expiresAt && !expired && (
                 <div className="flex items-center justify-center gap-1.5 text-xs text-orange-600 mb-4">
                   <Clock size={13} />
                   <span>Hết hạn: {new Date(expiresAt).toLocaleTimeString('vi-VN')}</span>
                 </div>
               )}
 
-              {/* Polling Indicator */}
-              <div className="flex items-center justify-center gap-2 py-3 px-4 bg-blue-50 rounded-lg">
-                <Loader2 size={16} className="animate-spin text-blue-600 flex-shrink-0" />
-                <p className="text-sm text-blue-700">
-                  Đang chờ thanh toán (tự động cập nhật mỗi 5 giây)
-                </p>
-              </div>
+              {recreateError && (
+                <div className="flex items-center justify-center gap-1.5 text-xs text-red-600 mb-3">
+                  <AlertCircle size={13} />
+                  <span>{recreateError}</span>
+                </div>
+              )}
+
+              {expired ? (
+                /* Hết hạn — cho tạo lại mã QR */
+                <button
+                  onClick={handleRecreate}
+                  disabled={recreating}
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
+                >
+                  <RefreshCw size={16} className={recreating ? 'animate-spin' : ''} />
+                  <span className="text-sm font-medium">
+                    {recreating ? 'Đang tạo mã mới...' : 'Tạo lại mã QR'}
+                  </span>
+                </button>
+              ) : (
+                /* Polling Indicator */
+                <div className="flex items-center justify-center gap-2 py-3 px-4 bg-blue-50 rounded-lg">
+                  <Loader2 size={16} className="animate-spin text-blue-600 flex-shrink-0" />
+                  <p className="text-sm text-blue-700">
+                    Đang chờ thanh toán (tự động cập nhật mỗi 5 giây)
+                  </p>
+                </div>
+              )}
 
               <button
                 onClick={onClose}
