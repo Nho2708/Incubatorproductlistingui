@@ -2,7 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(**)",
-      "WebFetch(https://api-incusmart.io.vn/**)",
+      "WebFetch(domain:api-incusmart.io.vn)",
       "Read",
       "Write",
       "Edit",

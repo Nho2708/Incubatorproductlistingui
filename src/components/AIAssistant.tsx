@@ -1,188 +1,137 @@
-import { useState } from 'react';
-import { MessageCircle, X, Send, Bot } from 'lucide-react';
-import { Product } from '../App';
-import { products } from '../data/products';
+import { useState, useRef, useEffect } from 'react';
+import { MessageCircle, X, Send, Bot, Loader2 } from 'lucide-react';
+import { tokenStorage } from '../services/api';
+import { User } from '../App';
 
-type AIAssistantProps = {
-  onProductSelect: (product: Product) => void;
+const CHAT_BASE = 'https://api-incusmart.io.vn';
+
+const QUICK_PROMPTS = [
+  'Nhiệt độ ấp trứng gà bao nhiêu?',
+  'Đề xuất cấu hình cho 100 trứng gà',
+  'Độ ẩm giai đoạn cuối nên thế nào?',
+];
+
+type ChatSource = { source: string; section: string };
+
+type ConfigParameter = {
+  config_code: string;
+  config_name: string;
+  target_value: number;
+  min_value: number;
+  max_value: number;
+  unit: string;
+};
+
+type ConfigPhase = {
+  phase_index: number;
+  phase_name: string;
+  day_start: number;
+  day_end: number;
+  parameters: ConfigParameter[];
 };
 
 type Message = {
   id: string;
-  type: 'user' | 'bot';
+  type: 'user' | 'bot' | 'loading' | 'error';
   content: string;
-  suggestions?: string[];
-  products?: Product[];
+  sources?: ChatSource[];
+  recommended_config?: ConfigPhase[] | null;
 };
 
-export function AIAssistant({ onProductSelect }: AIAssistantProps) {
+type AIAssistantProps = {
+  user: User | null;
+  onLogin: () => void;
+};
+
+export function AIAssistant({ user, onLogin }: AIAssistantProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       type: 'bot',
-      content: 'Xin chào! Tôi là trợ lý AI của Máy Ấp Trứng. Tôi có thể giúp bạn:',
-      suggestions: [
-        'Tìm máy phù hợp với nhu cầu',
-        'So sánh các dòng máy',
-        'Tư vấn công suất',
-        'Hỗ trợ kỹ thuật',
-      ],
+      content: 'Xin chào! Tôi là trợ lý AI IncuSmart. Hỏi tôi bất cứ điều gì về kỹ thuật ấp trứng nhé!',
     },
   ]);
   const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const sessionIdRef = useRef(`session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('vi-VN', {
-      style: 'currency',
-      currency: 'VND',
-    }).format(price);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleOpen = () => {
+    if (!user) {
+      onLogin();
+      return;
+    }
+    setIsOpen(true);
   };
 
-  const handleSendMessage = (text?: string) => {
-    const messageText = text || input;
-    if (!messageText.trim()) return;
+  const handleSend = async (text?: string) => {
+    const messageText = (text ?? input).trim();
+    if (!messageText || isLoading) return;
 
-    // Add user message
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      type: 'user',
-      content: messageText,
-    };
-    setMessages(prev => [...prev, userMessage]);
     setInput('');
+    const userMsg: Message = { id: `u-${Date.now()}`, type: 'user', content: messageText };
+    const loadingId = `l-${Date.now()}`;
+    setMessages(prev => [...prev, userMsg, { id: loadingId, type: 'loading', content: '' }]);
+    setIsLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const botMessage = generateBotResponse(messageText);
-      setMessages(prev => [...prev, botMessage]);
-    }, 500);
-  };
+    try {
+      const token = tokenStorage.get();
+      const res = await fetch(`${CHAT_BASE}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ message: messageText, session_id: sessionIdRef.current }),
+      });
 
-  const generateBotResponse = (userInput: string): Message => {
-    const lower = userInput.toLowerCase();
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
 
-    // Capacity recommendations
-    if (lower.includes('gia đình') || lower.includes('nhỏ')) {
-      return {
-        id: Date.now().toString(),
-        type: 'bot',
-        content: 'Với hộ gia đình, tôi khuyên bạn nên chọn máy 50-100 trứng. Dưới đây là các sản phẩm phù hợp:',
-        products: products.filter(p => p.capacity <= 100),
-      };
+      setMessages(prev =>
+        prev
+          .filter(m => m.id !== loadingId)
+          .concat({
+            id: `b-${Date.now()}`,
+            type: 'bot',
+            content: data.answer ?? 'Không có phản hồi.',
+            sources: data.sources?.length ? data.sources : undefined,
+            recommended_config: data.recommended_config ?? null,
+          })
+      );
+    } catch {
+      setMessages(prev =>
+        prev
+          .filter(m => m.id !== loadingId)
+          .concat({ id: `e-${Date.now()}`, type: 'error', content: 'Lỗi kết nối. Vui lòng thử lại.' })
+      );
+    } finally {
+      setIsLoading(false);
     }
-
-    if (lower.includes('trang trại') || lower.includes('lớn') || lower.includes('500') || lower.includes('1000')) {
-      return {
-        id: Date.now().toString(),
-        type: 'bot',
-        content: 'Với trang trại lớn, tôi khuyên bạn nên chọn máy 500-1000 trứng có AI monitoring:',
-        products: products.filter(p => p.capacity >= 500),
-      };
-    }
-
-    // AI features
-    if (lower.includes('ai') || lower.includes('thông minh')) {
-      return {
-        id: Date.now().toString(),
-        type: 'bot',
-        content: 'Các máy có AI sẽ tự động điều chỉnh nhiệt độ, độ ẩm và cảnh báo sớm các vấn đề. Đây là những sản phẩm có AI:',
-        products: products.filter(p => p.specs.aiMonitoring),
-      };
-    }
-
-    // Price comparison
-    if (lower.includes('so sánh') || lower.includes('khác nhau')) {
-      return {
-        id: Date.now().toString(),
-        type: 'bot',
-        content: 'Dưới đây là bảng so sánh các dòng máy phổ biến:\n\n' +
-          '• Mini 50: ' + formatPrice(products[0].price) + ' - Phù hợp hộ gia đình\n' +
-          '• Pro 200: ' + formatPrice(products[2].price) + ' - Trang trại nhỏ, có AI\n' +
-          '• Smart 500: ' + formatPrice(products[3].price) + ' - Trang trại vừa, AI cao cấp\n\n' +
-          'Bạn muốn xem chi tiết sản phẩm nào?',
-        suggestions: ['Xem Mini 50', 'Xem Pro 200', 'Xem Smart 500'],
-      };
-    }
-
-    // Price range
-    if (lower.includes('giá') || lower.includes('rẻ') || lower.includes('tiết kiệm')) {
-      return {
-        id: Date.now().toString(),
-        type: 'bot',
-        content: 'Tôi tìm thấy các sản phẩm theo mức giá:',
-        products: products.sort((a, b) => a.price - b.price).slice(0, 3),
-      };
-    }
-
-    // Technical support
-    if (lower.includes('kỹ thuật') || lower.includes('hỗ trợ') || lower.includes('cài đặt')) {
-      return {
-        id: Date.now().toString(),
-        type: 'bot',
-        content: 'Tôi có thể hỗ trợ bạn về:\n\n' +
-          '✓ Hướng dẫn cài đặt và vận hành\n' +
-          '✓ Điều chỉnh nhiệt độ và độ ẩm\n' +
-          '✓ Kết nối app và thiết lập thông báo\n' +
-          '✓ Xử lý sự cố thường gặp\n\n' +
-          'Bạn cần hỗ trợ về vấn đề gì?',
-        suggestions: [
-          'Cách cài đặt nhiệt độ',
-          'Kết nối app',
-          'Xử lý sự cố',
-        ],
-      };
-    }
-
-    // Egg types
-    if (lower.includes('trứng')) {
-      return {
-        id: Date.now().toString(),
-        type: 'bot',
-        content: 'Các loại trứng khác nhau cần nhiệt độ và thời gian ấp khác nhau:\n\n' +
-          '🐔 Trứng gà: 37.5°C, 21 ngày\n' +
-          '🦆 Trứng vịt: 37.5°C, 28 ngày\n' +
-          '🦢 Trứng ngỗng: 37.5°C, 30 ngày\n' +
-          '🐦 Trứng chim: 37.5°C, 12-14 ngày\n\n' +
-          'Bạn muốn ấp loại trứng nào?',
-      };
-    }
-
-    // Default response
-    return {
-      id: Date.now().toString(),
-      type: 'bot',
-      content: 'Tôi có thể giúp bạn tìm máy ấp trứng phù hợp. Bạn có thể cho tôi biết:\n\n' +
-        '• Bạn cần máy cho hộ gia đình hay trang trại?\n' +
-        '• Ngân sách của bạn là bao nhiêu?\n' +
-        '• Bạn muốn máy có AI không?\n' +
-        '• Bạn sẽ ấp loại trứng gì?',
-      suggestions: [
-        'Cho hộ gia đình',
-        'Cho trang trại',
-        'Máy có AI',
-        'Giá rẻ nhất',
-      ],
-    };
   };
 
   return (
     <>
-      {/* Chat Button */}
+      {/* Floating button */}
       {!isOpen && (
         <button
-          onClick={() => setIsOpen(true)}
+          onClick={handleOpen}
           className="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all flex items-center justify-center z-50 group"
         >
           <MessageCircle size={24} />
-          <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>
+          <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
           <span className="absolute right-full mr-3 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-            Trợ lý AI
+            {user ? 'Trợ lý AI' : 'Đăng nhập để dùng trợ lý AI'}
           </span>
         </button>
       )}
 
-      {/* Chat Panel */}
+      {/* Chat panel */}
       {isOpen && (
         <div className="fixed bottom-6 right-6 w-96 h-[600px] bg-white rounded-2xl shadow-2xl flex flex-col z-50 border border-gray-200">
           {/* Header */}
@@ -192,7 +141,7 @@ export function AIAssistant({ onProductSelect }: AIAssistantProps) {
                 <Bot size={24} />
               </div>
               <div>
-                <div className="font-semibold">Trợ lý AI</div>
+                <div className="font-semibold">Trợ lý AI IncuSmart</div>
                 <div className="text-xs text-blue-100">Luôn sẵn sàng hỗ trợ</div>
               </div>
             </div>
@@ -204,71 +153,86 @@ export function AIAssistant({ onProductSelect }: AIAssistantProps) {
             </button>
           </div>
 
+          {/* Quick prompts */}
+          <div className="px-4 pt-3 flex gap-2 flex-wrap">
+            {QUICK_PROMPTS.map(p => (
+              <button
+                key={p}
+                onClick={() => handleSend(p)}
+                disabled={isLoading}
+                className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs rounded-full hover:bg-blue-100 transition-colors disabled:opacity-50"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {messages.map(message => (
-              <div key={message.id}>
-                <div className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    className={`max-w-[80%] p-3 rounded-2xl ${
-                      message.type === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-900'
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-line">{message.content}</p>
+            {messages.map(msg => (
+              <div key={msg.id}>
+                {msg.type === 'loading' ? (
+                  <div className="flex justify-start">
+                    <div className="bg-gray-100 rounded-2xl p-3 flex items-center gap-2">
+                      <Loader2 size={16} className="animate-spin text-gray-500" />
+                      <span className="text-sm text-gray-500">Đang trả lời...</span>
+                    </div>
                   </div>
-                </div>
-
-                {/* Suggestions */}
-                {message.suggestions && (
-                  <div className="flex flex-wrap gap-2 mt-2 ml-2">
-                    {message.suggestions.map((suggestion, index) => (
-                      <button
-                        key={index}
-                        onClick={() => handleSendMessage(suggestion)}
-                        className="px-3 py-1.5 bg-blue-50 text-blue-700 text-sm rounded-full hover:bg-blue-100 transition-colors"
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
+                ) : msg.type === 'error' ? (
+                  <div className="flex justify-start">
+                    <div className="bg-red-50 text-red-600 rounded-2xl p-3 text-sm">{msg.content}</div>
                   </div>
-                )}
-
-                {/* Product Cards */}
-                {message.products && (
-                  <div className="space-y-2 mt-2 ml-2">
-                    {message.products.map(product => (
+                ) : (
+                  <>
+                    <div className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div
-                        key={product.id}
-                        className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow cursor-pointer"
-                        onClick={() => {
-                          onProductSelect(product);
-                          setIsOpen(false);
-                        }}
+                        className={`max-w-[80%] p-3 rounded-2xl ${
+                          msg.type === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+                        }`}
                       >
-                        <div className="flex gap-3">
-                          <img
-                            src={product.image}
-                            alt={product.name}
-                            className="w-16 h-16 object-cover rounded-lg"
-                          />
-                          <div className="flex-1">
-                            <div className="font-semibold text-sm mb-1">{product.name}</div>
-                            <div className="text-xs text-gray-600 mb-1">
-                              {product.capacity} trứng • {product.hatchRate}% tỉ lệ nở
-                            </div>
-                            <div className="text-blue-600 font-semibold">
-                              {formatPrice(product.price)}
-                            </div>
-                          </div>
-                        </div>
+                        <p className="text-sm whitespace-pre-line">{msg.content}</p>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+
+                    {/* Recommended config */}
+                    {msg.recommended_config && msg.recommended_config.length > 0 && (
+                      <div className="mt-2 space-y-2 ml-2">
+                        {msg.recommended_config.map(phase => (
+                          <div key={phase.phase_index} className="border border-blue-100 rounded-xl bg-blue-50 p-3">
+                            <div className="font-medium text-sm text-blue-800 mb-2">
+                              {phase.phase_name} (Ngày {phase.day_start}–{phase.day_end})
+                            </div>
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="text-gray-500">
+                                  <th className="text-left py-0.5">Thông số</th>
+                                  <th className="text-right py-0.5">Mục tiêu</th>
+                                  <th className="text-right py-0.5">Min</th>
+                                  <th className="text-right py-0.5">Max</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {phase.parameters.map(p => (
+                                  <tr key={p.config_code} className="border-t border-blue-100">
+                                    <td className="py-0.5 text-gray-700">{p.config_name}</td>
+                                    <td className="py-0.5 text-right font-medium text-blue-700">
+                                      {p.target_value}{p.unit}
+                                    </td>
+                                    <td className="py-0.5 text-right text-gray-500">{p.min_value}{p.unit}</td>
+                                    <td className="py-0.5 text-right text-gray-500">{p.max_value}{p.unit}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ))}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Input */}
@@ -277,17 +241,18 @@ export function AIAssistant({ onProductSelect }: AIAssistantProps) {
               <input
                 type="text"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
                 placeholder="Nhập câu hỏi của bạn..."
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isLoading}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
               />
               <button
-                onClick={() => handleSendMessage()}
-                disabled={!input.trim()}
+                onClick={() => handleSend()}
+                disabled={!input.trim() || isLoading}
                 className="w-10 h-10 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Send size={18} />
+                {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
               </button>
             </div>
           </div>
