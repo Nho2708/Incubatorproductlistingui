@@ -41,10 +41,7 @@ export function ProductDetail({ product, onBack, onPurchase, onAddToCart, user, 
   };
 
   const handlePurchaseClick = (type: 'deposit' | 'full') => {
-    if (!user) {
-      onLogin();
-      return;
-    }
+    // Chưa đăng nhập vẫn cho mua — sẽ đi luồng order guest trong PurchaseFlow
     onPurchase(product, quantity, type);
   };
 
@@ -252,7 +249,7 @@ export function ProductDetail({ product, onBack, onPurchase, onAddToCart, user, 
 
               {!user && (
                 <p className="text-center text-sm text-gray-500 mt-3">
-                  Vui lòng đăng nhập để mua hàng
+                  Bạn có thể mua không cần đăng nhập — đặt mã tra cứu để xem đơn sau
                 </p>
               )}
             </div>
