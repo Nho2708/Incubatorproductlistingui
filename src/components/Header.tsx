@@ -1,6 +1,15 @@
 import { useState } from 'react';
-import { ShoppingCart, User as UserIcon, LogOut, ShoppingBag, Phone, Mail, Menu, X, Cpu, BookOpen } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { ShoppingCart, User as UserIcon, LogOut, ShoppingBag, Phone, Mail, Menu, X, Box, Layers } from 'lucide-react';
 import { User } from '../App';
+
+const NAV_PATHS: Record<string, string> = {
+  landing: '/',
+  listing: '/products',
+  about: '/about',
+  guide: '/guide',
+  contact: '/contact',
+};
 
 type HeaderProps = {
   user: User | null;
@@ -14,6 +23,22 @@ type HeaderProps = {
 export function Header({ user, onLogin, onLogout, onNavigate, cartCount = 0, onCartClick }: HeaderProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const { pathname } = useLocation();
+
+  const isActive = (view: string) =>
+    pathname === NAV_PATHS[view] || (view === 'listing' && pathname.startsWith('/products'));
+
+  const navClass = (view: string) =>
+    'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ' +
+    (isActive(view)
+      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+      : 'text-gray-700 hover:text-blue-600');
+
+  const mobileNavClass = (view: string) =>
+    'text-left px-4 py-2 rounded-lg font-medium transition-colors ' +
+    (isActive(view)
+      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+      : 'text-gray-700 hover:bg-gray-50');
 
   return (
     <header className="bg-white shadow-sm sticky top-0 z-40">
@@ -60,35 +85,20 @@ export function Header({ user, onLogin, onLogout, onNavigate, cartCount = 0, onC
           </button>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-6">
-            <button
-              onClick={() => onNavigate('landing')}
-              className="text-gray-700 hover:text-blue-600 transition-colors"
-            >
+          <nav className="hidden md:flex items-center gap-4">
+            <button onClick={() => onNavigate('landing')} className={navClass('landing')}>
               Trang chủ
             </button>
-            <button
-              onClick={() => onNavigate('listing')}
-              className="text-gray-700 hover:text-blue-600 transition-colors"
-            >
+            <button onClick={() => onNavigate('listing')} className={navClass('listing')}>
               Sản phẩm
             </button>
-            <button
-              onClick={() => onNavigate('about')}
-              className="text-gray-700 hover:text-blue-600 transition-colors"
-            >
+            <button onClick={() => onNavigate('about')} className={navClass('about')}>
               Giới thiệu
             </button>
-            <button
-              onClick={() => onNavigate('guide')}
-              className="text-gray-700 hover:text-blue-600 transition-colors"
-            >
+            <button onClick={() => onNavigate('guide')} className={navClass('guide')}>
               Hướng dẫn
             </button>
-            <button
-              onClick={() => onNavigate('contact')}
-              className="text-gray-700 hover:text-blue-600 transition-colors"
-            >
+            <button onClick={() => onNavigate('contact')} className={navClass('contact')}>
               Liên hệ
             </button>
           </nav>
@@ -131,28 +141,34 @@ export function Header({ user, onLogin, onLogout, onNavigate, cartCount = 0, onC
                         <p className="text-sm text-gray-500 truncate">{user.email}</p>
                       </div>
                       <button
-                        onClick={() => { onNavigate('orders'); setShowUserMenu(false); }}
+                        onClick={() => { onNavigate('machines'); setShowUserMenu(false); }}
                         className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3"
                       >
-                        <ShoppingBag size={18} className="text-gray-600" />
-                        <span>Đơn hàng của tôi</span>
-                      </button>
-                      <button
-                        onClick={() => { onNavigate('my-incubators'); setShowUserMenu(false); }}
-                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3"
-                      >
-                        <Cpu size={18} className="text-gray-600" />
+                        <Box size={18} className="text-gray-600" />
                         <span>Máy ấp của tôi</span>
                       </button>
                       <button
                         onClick={() => { onNavigate('templates'); setShowUserMenu(false); }}
                         className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3"
                       >
-                        <BookOpen size={18} className="text-gray-600" />
-                        <span>Template ấp</span>
+                        <Layers size={18} className="text-gray-600" />
+                        <span>Mẫu mùa ấp</span>
                       </button>
                       <button
-                        onClick={() => { onNavigate('profile'); setShowUserMenu(false); }}
+                        onClick={() => {
+                          onNavigate('orders');
+                          setShowUserMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3"
+                      >
+                        <ShoppingBag size={18} className="text-gray-600" />
+                        <span>Đơn hàng của tôi</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          onNavigate('profile');
+                          setShowUserMenu(false);
+                        }}
                         className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3"
                       >
                         <UserIcon size={18} className="text-gray-600" />
@@ -196,52 +212,16 @@ export function Header({ user, onLogin, onLogout, onNavigate, cartCount = 0, onC
         {/* Mobile Menu */}
         {showMobileMenu && (
           <div className="md:hidden mt-4 py-4 border-t border-gray-200">
-            <nav className="flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  onNavigate('landing');
-                  setShowMobileMenu(false);
-                }}
-                className="text-left px-4 py-2 text-gray-700 hover:bg-gray-50 rounded-lg"
-              >
-                Trang chủ
-              </button>
-              <button
-                onClick={() => {
-                  onNavigate('listing');
-                  setShowMobileMenu(false);
-                }}
-                className="text-left px-4 py-2 text-gray-700 hover:bg-gray-50 rounded-lg"
-              >
-                Sản phẩm
-              </button>
-              <button
-                onClick={() => {
-                  onNavigate('about');
-                  setShowMobileMenu(false);
-                }}
-                className="text-left px-4 py-2 text-gray-700 hover:bg-gray-50 rounded-lg"
-              >
-                Giới thiệu
-              </button>
-              <button
-                onClick={() => {
-                  onNavigate('guide');
-                  setShowMobileMenu(false);
-                }}
-                className="text-left px-4 py-2 text-gray-700 hover:bg-gray-50 rounded-lg"
-              >
-                Hướng dẫn
-              </button>
-              <button
-                onClick={() => {
-                  onNavigate('contact');
-                  setShowMobileMenu(false);
-                }}
-                className="text-left px-4 py-2 text-gray-700 hover:bg-gray-50 rounded-lg"
-              >
-                Liên hệ
-              </button>
+            <nav className="flex flex-col gap-1">
+              {(['landing', 'listing', 'about', 'guide', 'contact'] as const).map((view) => (
+                <button
+                  key={view}
+                  onClick={() => { onNavigate(view); setShowMobileMenu(false); }}
+                  className={mobileNavClass(view)}
+                >
+                  {{ landing: 'Trang chủ', listing: 'Sản phẩm', about: 'Giới thiệu', guide: 'Hướng dẫn', contact: 'Liên hệ' }[view]}
+                </button>
+              ))}
             </nav>
           </div>
         )}

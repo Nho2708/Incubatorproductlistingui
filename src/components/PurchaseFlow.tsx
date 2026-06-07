@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   ArrowLeft,
   Check,
@@ -12,16 +12,9 @@ import {
   ShoppingCart,
   AlertCircle,
   Loader2,
-  RefreshCw,
 } from 'lucide-react';
 import { Order, User as UserType } from '../App';
-import {
-  createOrderCustomer,
-  createOrderGuest,
-  getMyProfile,
-  updateMyProfile,
-  CreateOrderResponse,
-} from '../services/api';
+import { createOrderCustomer, createOrderGuest, CreateOrderResponse } from '../services/api';
 import { PaymentModal } from './PaymentModal';
 
 // ─── Purchase Flow ────────────────────────────────────────────────────────────
@@ -35,11 +28,9 @@ type PurchaseFlowProps = {
 export function PurchaseFlow({ order, onBack, user }: PurchaseFlowProps) {
   const [step, setStep] = useState<'info' | 'payment' | 'confirmation'>('info');
   const [loading, setLoading] = useState(false);
-  const [profileLoading, setProfileLoading] = useState(!!user);
   const [error, setError] = useState('');
   const [orderResult, setOrderResult] = useState<CreateOrderResponse | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [savedAddress, setSavedAddress] = useState('');
   const [customerInfo, setCustomerInfo] = useState({
     name: user?.name || '',
     phone: '',
@@ -48,27 +39,6 @@ export function PurchaseFlow({ order, onBack, user }: PurchaseFlowProps) {
     notes: '',
     verificationPass: '',
   });
-
-  // Fetch profile address for logged-in customers
-  useEffect(() => {
-    if (!user) return;
-    getMyProfile()
-      .then((res) => {
-        if (res.statusCode === '200' && res.data) {
-          const p = res.data;
-          setSavedAddress(p.address || '');
-          setCustomerInfo((prev) => ({
-            ...prev,
-            name: p.fullName || prev.name,
-            phone: p.phone || prev.phone,
-            email: p.email || prev.email,
-            address: p.address || '',
-          }));
-        }
-      })
-      .catch(() => {})
-      .finally(() => setProfileLoading(false));
-  }, [user]);
 
   const formatPrice = (price: number) =>
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
@@ -87,21 +57,6 @@ export function PurchaseFlow({ order, onBack, user }: PurchaseFlowProps) {
       let res;
 
       if (user) {
-        // Sync address to profile if changed before creating order
-        if (customerInfo.address && customerInfo.address !== savedAddress) {
-          const syncRes = await updateMyProfile(customerInfo.address);
-          if (syncRes.statusCode !== '200') {
-            setError(syncRes.message || 'Không thể cập nhật địa chỉ giao hàng.');
-            setLoading(false);
-            return;
-          }
-          setSavedAddress(customerInfo.address);
-        }
-        if (!customerInfo.address.trim()) {
-          setError('Vui lòng nhập địa chỉ giao hàng.');
-          setLoading(false);
-          return;
-        }
         res = await createOrderCustomer(items);
       } else {
         if (!customerInfo.verificationPass || customerInfo.verificationPass.length < 6) {
@@ -230,13 +185,6 @@ export function PurchaseFlow({ order, onBack, user }: PurchaseFlowProps) {
                     </div>
                   </div>
 
-                  {profileLoading ? (
-                    <div className="space-y-4">
-                      {[1, 2, 3, 4].map((i) => (
-                        <div key={i} className="h-11 bg-gray-100 rounded-lg animate-pulse" />
-                      ))}
-                    </div>
-                  ) : (
                   <form onSubmit={handleSubmitInfo} className="space-y-4">
                     <div>
                       <label className="block text-sm mb-2">
@@ -287,21 +235,9 @@ export function PurchaseFlow({ order, onBack, user }: PurchaseFlowProps) {
                     </div>
 
                     <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="block text-sm">
-                          Địa chỉ giao hàng <span className="text-red-500">*</span>
-                        </label>
-                        {user && (
-                          customerInfo.address && customerInfo.address !== savedAddress ? (
-                            <span className="text-xs text-orange-600 flex items-center gap-1">
-                              <RefreshCw size={11} />
-                              Địa chỉ mới — sẽ lưu vào hồ sơ
-                            </span>
-                          ) : savedAddress ? (
-                            <span className="text-xs text-green-600">Địa chỉ đã lưu trong hồ sơ</span>
-                          ) : null
-                        )}
-                      </div>
+                      <label className="block text-sm mb-2">
+                        Địa chỉ giao hàng <span className="text-red-500">*</span>
+                      </label>
                       <div className="relative">
                         <MapPin className="absolute left-3 top-3 text-gray-400" size={20} />
                         <textarea
@@ -355,7 +291,6 @@ export function PurchaseFlow({ order, onBack, user }: PurchaseFlowProps) {
                       Tiếp tục
                     </button>
                   </form>
-                  )}
                 </div>
               )}
 

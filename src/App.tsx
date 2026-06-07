@@ -16,9 +16,10 @@ import { LandingPage } from './components/LandingPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { PurchaseFlowPage } from './pages/PurchaseFlowPage';
 import { OrderDetailPage } from './pages/OrderDetailPage';
-import { MyIncubatorsPage } from './pages/MyIncubatorsPage';
-import { HatchingTemplatesPage } from './pages/HatchingTemplatesPage';
-import { tokenStorage, decodeJwt } from './services/api';
+import { IncubatorsPage } from './pages/IncubatorsPage';
+import { TemplatesPage } from './pages/TemplatesPage';
+import { HatchingSeasonDetailPage } from './pages/HatchingSeasonDetailPage';
+import { tokenStorage, decodeJwt, isTokenExpired, setUnauthorizedHandler } from './services/api';
 
 export type Product = {
   id: string;
@@ -85,10 +86,10 @@ function parseUserFromToken(token: string): User | null {
 const VIEW_TO_PATH: Record<string, string> = {
   landing: '/',
   listing: '/products',
+  machines: '/machines',
+  templates: '/templates',
   orders: '/orders',
   profile: '/profile',
-  'my-incubators': '/my-incubators',
-  templates: '/templates',
   about: '/about',
   guide: '/guide',
   contact: '/contact',
@@ -111,11 +112,22 @@ function App() {
   useEffect(() => {
     const token = tokenStorage.get();
     if (token) {
-      const parsed = parseUserFromToken(token);
-      if (parsed) setUser(parsed);
+      if (isTokenExpired(token)) {
+        tokenStorage.remove();
+      } else {
+        const parsed = parseUserFromToken(token);
+        if (parsed) setUser(parsed);
+      }
     }
     setAuthLoading(false);
   }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      navigate('/');
+    });
+  }, [navigate]);
 
   const handleAddToCart = (product: Product, quantity: number = 1) => {
     setCartItems((prev) => {
@@ -145,10 +157,7 @@ function App() {
   };
 
   const handleCartCheckout = (type: 'deposit' | 'full') => {
-    if (!user) {
-      setShowAuthModal(true);
-      return;
-    }
+    // Chưa đăng nhập (không có JWT) vẫn cho đi tiếp — PurchaseFlow sẽ tự rẽ nhánh order guest
     if (cartItems.length === 0) return;
     const total = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
     const order: Order = {
@@ -249,6 +258,30 @@ function App() {
           />
           <Route path="/purchase" element={<PurchaseFlowPage user={user} />} />
           <Route
+            path="/machines"
+            element={
+              <AuthGuard user={user} authLoading={authLoading}>
+                <IncubatorsPage />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/templates"
+            element={
+              <AuthGuard user={user} authLoading={authLoading}>
+                <TemplatesPage user={user!} />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/seasons/:id"
+            element={
+              <AuthGuard user={user} authLoading={authLoading}>
+                <HatchingSeasonDetailPage />
+              </AuthGuard>
+            }
+          />
+          <Route
             path="/orders"
             element={
               <AuthGuard user={user} authLoading={authLoading}>
@@ -272,22 +305,6 @@ function App() {
               </AuthGuard>
             }
           />
-          <Route
-            path="/my-incubators"
-            element={
-              <AuthGuard user={user} authLoading={authLoading}>
-                <MyIncubatorsPage />
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/templates"
-            element={
-              <AuthGuard user={user} authLoading={authLoading}>
-                <HatchingTemplatesPage />
-              </AuthGuard>
-            }
-          />
           <Route path="/about" element={<AboutUs />} />
           <Route path="/guide" element={<Guide />} />
           <Route path="/contact" element={<Contact />} />
@@ -296,7 +313,7 @@ function App() {
       </main>
 
       <Footer onNavigate={handleNavigate} />
-      <AIAssistant onProductSelect={handleViewProduct} />
+      <AIAssistant user={user} onLogin={() => setShowAuthModal(true)} />
 
       {showAuthModal && (
         <AuthModal

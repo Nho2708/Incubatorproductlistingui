@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Truck, CheckCircle, Clock, Loader2, AlertCircle, X, Eye, Link } from 'lucide-react';
+import { Package, Truck, CheckCircle, Clock, Loader2, AlertCircle, X, Eye, CreditCard, PackageCheck, ShoppingBag } from 'lucide-react';
 import { getMyOrders, cancelOrder, claimGuestOrder, ApiSalesOrder } from '../services/api';
+import { PaymentModal } from './PaymentModal';
+import { PageHeader } from './PageHeader';
 import { User } from '../App';
 
 type MyOrdersProps = {
   user: User;
 };
 
-type TabStatus = 'all' | 'PENDING' | 'CONFIRMED' | 'DELIVERING' | 'COMPLETED' | 'CANCELLED';
+type TabStatus = 'all' | 'PENDING' | 'PROCESSING' | 'SHIPPING' | 'COMPLETED' | 'CANCELLED';
 
 const STATUS_MAP: Record<string, { label: string; color: string; icon: any }> = {
   PENDING: { label: 'Chờ xác nhận', color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: Clock },
-  CONFIRMED: { label: 'Đã xác nhận', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Package },
-  DELIVERING: { label: 'Đang giao hàng', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: Truck },
+  PROCESSING: { label: 'Đang xử lý', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Package },
+  SHIPPING: { label: 'Đang giao hàng', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: Truck },
   COMPLETED: { label: 'Hoàn thành', color: 'bg-green-100 text-green-700 border-green-200', icon: CheckCircle },
   CANCELLED: { label: 'Đã hủy', color: 'bg-red-100 text-red-700 border-red-200', icon: X },
 };
@@ -21,8 +23,8 @@ const STATUS_MAP: Record<string, { label: string; color: string; icon: any }> = 
 const TABS: { id: TabStatus; label: string }[] = [
   { id: 'all', label: 'Tất cả' },
   { id: 'PENDING', label: 'Chờ xác nhận' },
-  { id: 'CONFIRMED', label: 'Đã xác nhận' },
-  { id: 'DELIVERING', label: 'Đang giao' },
+  { id: 'PROCESSING', label: 'Đang xử lý' },
+  { id: 'SHIPPING', label: 'Đang giao' },
   { id: 'COMPLETED', label: 'Hoàn thành' },
   { id: 'CANCELLED', label: 'Đã hủy' },
 ];
@@ -41,9 +43,11 @@ export function MyOrders({ user: _user }: MyOrdersProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cancellingId, setCancellingId] = useState<string | null>(null);
-  const [showClaimModal, setShowClaimModal] = useState(false);
+  const [payingOrder, setPayingOrder] = useState<ApiSalesOrder | null>(null);
+  // Claim (nhận) đơn guest về tài khoản
+  const [showClaim, setShowClaim] = useState(false);
   const [claimForm, setClaimForm] = useState({ orderCode: '', verificationPass: '' });
-  const [claimLoading, setClaimLoading] = useState(false);
+  const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState('');
   const [claimSuccess, setClaimSuccess] = useState(false);
 
@@ -93,25 +97,28 @@ export function MyOrders({ user: _user }: MyOrdersProps) {
 
   const handleClaim = async (e: React.FormEvent) => {
     e.preventDefault();
-    setClaimLoading(true);
+    setClaiming(true);
     setClaimError('');
     try {
-      const res = await claimGuestOrder(claimForm.orderCode.trim(), claimForm.verificationPass);
-      if (res.statusCode === '200') {
+      const res = await claimGuestOrder(
+        claimForm.orderCode.trim(),
+        claimForm.verificationPass
+      );
+      if (res.statusCode === '200' && res.data) {
         setClaimSuccess(true);
-        fetchOrders();
+        setClaimForm({ orderCode: '', verificationPass: '' });
+        fetchOrders(activeTab !== 'all' ? activeTab : undefined);
         setTimeout(() => {
-          setShowClaimModal(false);
+          setShowClaim(false);
           setClaimSuccess(false);
-          setClaimForm({ orderCode: '', verificationPass: '' });
-        }, 2000);
+        }, 1500);
       } else {
-        setClaimError(res.message || 'Không thể nhận đơn hàng. Kiểm tra lại mã đơn và mã xác nhận.');
+        setClaimError(res.message || 'Không thể nhận đơn. Kiểm tra lại mã đơn và mã tra cứu.');
       }
     } catch {
       setClaimError('Lỗi kết nối. Vui lòng thử lại.');
     } finally {
-      setClaimLoading(false);
+      setClaiming(false);
     }
   };
 
@@ -130,88 +137,138 @@ export function MyOrders({ user: _user }: MyOrdersProps) {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4">
-        {/* Claim Modal */}
-        {showClaimModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setShowClaimModal(false)} />
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-              <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-lg">Nhận đơn hàng khách</p>
-                  <p className="text-blue-100 text-sm">Liên kết đơn đặt trước khi có tài khoản</p>
-                </div>
-                <button onClick={() => setShowClaimModal(false)} className="p-1 hover:bg-white/20 rounded-lg">
+      {payingOrder && (
+        <PaymentModal
+          orderId={payingOrder.id}
+          orderCode={payingOrder.orderCode}
+          qrCode={payingOrder.qrCode}
+          amount={payingOrder.totalAmount}
+          expiresAt={payingOrder.paymentLinkExpiredAt}
+          onPaid={() => {
+            setPayingOrder(null);
+            fetchOrders(activeTab !== 'all' ? activeTab : undefined);
+          }}
+          onClose={() => setPayingOrder(null)}
+        />
+      )}
+
+      {/* Modal nhận đơn guest */}
+      {showClaim && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => !claiming && setShowClaim(false)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-auto overflow-hidden">
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <PackageCheck size={20} />
+                <p className="font-semibold text-lg">Nhận đơn hàng khách</p>
+              </div>
+              {!claiming && (
+                <button
+                  onClick={() => setShowClaim(false)}
+                  className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+                >
                   <X size={20} />
                 </button>
-              </div>
-              <div className="p-6">
-                {claimSuccess ? (
-                  <div className="text-center py-4">
-                    <CheckCircle size={48} className="text-green-500 mx-auto mb-3" />
-                    <p className="font-semibold text-gray-900">Nhận đơn thành công!</p>
-                    <p className="text-sm text-gray-500 mt-1">Đơn hàng đã được thêm vào tài khoản.</p>
+              )}
+            </div>
+
+            <div className="p-6">
+              {claimSuccess ? (
+                <div className="text-center py-6">
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <CheckCircle size={32} className="text-green-600" />
                   </div>
-                ) : (
-                  <form onSubmit={handleClaim} className="space-y-4">
-                    {claimError && (
-                      <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                        <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-                        <span>{claimError}</span>
-                      </div>
+                  <p className="text-lg font-semibold text-gray-900">Nhận đơn thành công!</p>
+                  <p className="text-sm text-gray-500">Đơn đã được thêm vào tài khoản của bạn.</p>
+                </div>
+              ) : (
+                <form onSubmit={handleClaim} className="space-y-4">
+                  <p className="text-sm text-gray-600">
+                    Nhập mã đơn hàng và mã tra cứu bạn đã tạo khi đặt đơn không đăng nhập để
+                    chuyển đơn về tài khoản này.
+                  </p>
+
+                  {claimError && (
+                    <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                      <AlertCircle size={16} className="flex-shrink-0" />
+                      <span>{claimError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-sm mb-1.5">
+                      Mã đơn hàng <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={claimForm.orderCode}
+                      onChange={(e) => setClaimForm({ ...claimForm, orderCode: e.target.value })}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="VD: ORD-XXXXXX"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm mb-1.5">
+                      Mã tra cứu <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      minLength={6}
+                      value={claimForm.verificationPass}
+                      onChange={(e) =>
+                        setClaimForm({ ...claimForm, verificationPass: e.target.value })
+                      }
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Mã bí mật (tối thiểu 6 ký tự)"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={claiming}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
+                  >
+                    {claiming ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Đang nhận đơn...
+                      </>
+                    ) : (
+                      'Nhận đơn'
                     )}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">Mã đơn hàng <span className="text-red-500">*</span></label>
-                      <input
-                        type="text"
-                        required
-                        value={claimForm.orderCode}
-                        onChange={(e) => setClaimForm({ ...claimForm, orderCode: e.target.value })}
-                        placeholder="VD: ORD-12345678"
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">Mã xác nhận <span className="text-red-500">*</span></label>
-                      <p className="text-xs text-gray-500 mb-1.5">Mã bạn đã tạo khi đặt đơn khách (tối thiểu 6 ký tự)</p>
-                      <input
-                        type="text"
-                        required
-                        minLength={6}
-                        value={claimForm.verificationPass}
-                        onChange={(e) => setClaimForm({ ...claimForm, verificationPass: e.target.value })}
-                        placeholder="Mã xác nhận của bạn"
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={claimLoading}
-                      className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-60 flex items-center justify-center gap-2"
-                    >
-                      {claimLoading ? <><Loader2 size={18} className="animate-spin" />Đang xử lý...</> : 'Nhận đơn hàng'}
-                    </button>
-                  </form>
-                )}
-              </div>
+                  </button>
+                </form>
+              )}
             </div>
           </div>
-        )}
-
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-          <div>
-            <h1 className="text-3xl mb-1">Đơn hàng của tôi</h1>
-            <p className="text-gray-600 text-sm">Quản lý và theo dõi đơn hàng của bạn</p>
-          </div>
-          <button
-            onClick={() => { setClaimError(''); setClaimSuccess(false); setShowClaimModal(true); }}
-            className="flex items-center gap-2 px-4 py-2.5 border border-blue-300 text-blue-600 rounded-xl hover:bg-blue-50 transition-colors font-medium text-sm"
-          >
-            <Link size={16} />
-            Nhận đơn khách
-          </button>
         </div>
+      )}
+      <div className="max-w-7xl mx-auto px-4">
+        {/* Header */}
+        <PageHeader
+          title="Đơn hàng của tôi"
+          description="Quản lý và theo dõi đơn hàng của bạn"
+          icon={<ShoppingBag size={20} />}
+          action={
+            <button
+              onClick={() => {
+                setClaimError('');
+                setClaimSuccess(false);
+                setShowClaim(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-white border border-blue-200 text-blue-700 rounded-xl hover:bg-blue-50 transition-colors font-medium shadow-sm text-sm"
+            >
+              <PackageCheck size={16} />
+              Nhận đơn khách
+            </button>
+          }
+        />
 
         {/* Tabs */}
         <div className="bg-white rounded-xl shadow-sm mb-6 overflow-x-auto">
@@ -263,7 +320,11 @@ export function MyOrders({ user: _user }: MyOrdersProps) {
               const statusInfo = getStatusInfo(order.status);
               const StatusIcon = statusInfo.icon;
               const isCancelling = cancellingId === order.id;
-              const canCancel = order.status === 'PENDING' || order.status === 'CONFIRMED';
+              const canCancel = order.status === 'PENDING' || order.status === 'PROCESSING';
+              const canPay =
+                order.status !== 'CANCELLED' &&
+                order.paymentStatus !== 'PAID' &&
+                order.paymentStatus !== 'REFUNDED';
 
               return (
                 <div
@@ -294,13 +355,27 @@ export function MyOrders({ user: _user }: MyOrdersProps) {
                         <Eye size={15} />
                         Chi tiết
                       </button>
+                      {canPay && (
+                        <button
+                          onClick={() => setPayingOrder(order)}
+                          className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-1.5"
+                        >
+                          <CreditCard size={15} />
+                          Thanh toán
+                        </button>
+                      )}
                       {canCancel && (
                         <button
                           onClick={() => handleCancel(order.id)}
                           disabled={isCancelling}
                           className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-60"
                         >
-                          {isCancelling ? 'Đang hủy...' : 'Hủy đơn'}
+                          {isCancelling ? (
+                            <span className="flex items-center gap-1.5">
+                              <Loader2 size={14} className="animate-spin" />
+                              Đang hủy...
+                            </span>
+                          ) : 'Hủy đơn'}
                         </button>
                       )}
                     </div>
