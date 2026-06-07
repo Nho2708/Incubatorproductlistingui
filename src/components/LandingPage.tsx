@@ -1,11 +1,8 @@
-import { useEffect, useState } from 'react';
-import { ArrowRight, Star, Shield, Zap, Thermometer, Droplets, Wifi, CheckCircle, ChevronDown, Loader2, AlertCircle, Tag } from 'lucide-react';
-import { ApiIncubatorModel, getPublicIncubatorModels } from '../services/api';
+import { ArrowRight, Star, Shield, Zap, Thermometer, Droplets, Wifi, CheckCircle, ChevronDown } from 'lucide-react';
 
 type LandingPageProps = {
   onExplore: () => void;
   onLogin: () => void;
-  onViewProduct?: (modelId: string) => void;
 };
 
 const features = [
@@ -41,68 +38,7 @@ const features = [
   },
 ];
 
-function formatPrice(price: number) {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
-}
-
-function ProductCard({ model, onExplore }: { model: ApiIncubatorModel; onExplore: () => void }) {
-  return (
-    <div
-      className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 group cursor-pointer flex flex-col"
-      onClick={onExplore}
-    >
-      <div className="relative h-48 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center overflow-hidden">
-        <img
-          src="https://images.unsplash.com/photo-1569944405467-f040d1c3c7b0?w=600&q=80"
-          alt={model.name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-blue-900/30 to-transparent" />
-        <span className="absolute top-3 left-3 px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-full">
-          {model.modelCode}
-        </span>
-      </div>
-
-      <div className="p-5 flex flex-col flex-1">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2 leading-snug">
-          {model.name}
-        </h3>
-        {model.description && (
-          <p className="text-gray-500 text-sm leading-relaxed mb-4 flex-1 line-clamp-3">
-            {model.description}
-          </p>
-        )}
-        <div className="mt-auto pt-3 border-t border-gray-100 flex items-center justify-between">
-          <div>
-            <div className="text-xs text-gray-400 mb-0.5">Giá niêm yết</div>
-            <div className="text-blue-600 font-bold text-lg">{formatPrice(model.unitPrice)}</div>
-          </div>
-          <span className="flex items-center gap-1 text-blue-600 text-sm font-medium">
-            Chi tiết <ArrowRight size={15} />
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function LandingPage({ onExplore, onLogin }: LandingPageProps) {
-  const [products, setProducts] = useState<ApiIncubatorModel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    getPublicIncubatorModels({ pageSize: 6 })
-      .then((res) => {
-        if (res.statusCode === '200' && res.data) {
-          setProducts(res.data.items);
-        } else {
-          setError(res.message || 'Không thể tải danh sách sản phẩm.');
-        }
-      })
-      .catch(() => setError('Không thể kết nối đến máy chủ.'))
-      .finally(() => setLoading(false));
-  }, []);
 
   return (
     <div className="min-h-screen bg-white">
@@ -149,56 +85,6 @@ export function LandingPage({ onExplore, onLogin }: LandingPageProps) {
 
         <div className="relative flex justify-center pb-8">
           <ChevronDown size={32} className="text-white/40 animate-bounce" />
-        </div>
-      </section>
-
-      {/* Real Products Section */}
-      <section className="py-20 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Sản phẩm nổi bật</h2>
-            <p className="text-gray-500 text-lg max-w-xl mx-auto">
-              Danh mục máy ấp trứng IncuSmart — chất lượng được kiểm chứng thực tế.
-            </p>
-          </div>
-
-          {loading && (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 size={36} className="animate-spin text-blue-600" />
-              <span className="ml-3 text-gray-500">Đang tải sản phẩm...</span>
-            </div>
-          )}
-
-          {!loading && error && (
-            <div className="flex items-center justify-center gap-2 py-10 text-gray-500">
-              <AlertCircle size={20} />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {!loading && !error && products.length === 0 && (
-            <div className="text-center py-10 text-gray-400">Chưa có sản phẩm nào được công bố.</div>
-          )}
-
-          {!loading && !error && products.length > 0 && (
-            <>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
-                {products.map((model) => (
-                  <ProductCard key={model.id} model={model} onExplore={onExplore} />
-                ))}
-              </div>
-
-              <div className="text-center mt-10">
-                <button
-                  onClick={onExplore}
-                  className="inline-flex items-center gap-2 px-10 py-4 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors text-lg shadow-md"
-                >
-                  <Tag size={18} />
-                  Xem tất cả sản phẩm
-                </button>
-              </div>
-            </>
-          )}
         </div>
       </section>
 

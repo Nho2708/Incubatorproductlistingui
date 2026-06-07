@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, AlertCircle, Package, Clock, Truck, CheckCircle, X, QrCode } from 'lucide-react';
-import { getOrderById, cancelOrder, shipOrder, completeOrder, ApiSalesOrder, ApiSalesOrderItem } from '../services/api';
+import { ArrowLeft, Loader2, AlertCircle, Package, Clock, Truck, CheckCircle, X, QrCode, PackageCheck } from 'lucide-react';
+import { getOrderById, completeOrder, ApiSalesOrder, ApiSalesOrderItem } from '../services/api';
 import { PaymentModal } from '../components/PaymentModal';
 import { User } from '../App';
 
@@ -11,8 +11,8 @@ type Props = {
 
 const STATUS_MAP: Record<string, { label: string; color: string; icon: any }> = {
   PENDING: { label: 'Chờ xác nhận', color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: Clock },
-  CONFIRMED: { label: 'Đã xác nhận', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Package },
-  DELIVERING: { label: 'Đang giao hàng', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: Truck },
+  PROCESSING: { label: 'Đang xử lý', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Package },
+  SHIPPING: { label: 'Đang giao hàng', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: Truck },
   COMPLETED: { label: 'Hoàn thành', color: 'bg-green-100 text-green-700 border-green-200', icon: CheckCircle },
   CANCELLED: { label: 'Đã hủy', color: 'bg-red-100 text-red-700 border-red-200', icon: X },
 };
@@ -33,17 +33,16 @@ function formatDate(dateStr?: string) {
   return new Date(dateStr).toLocaleDateString('vi-VN');
 }
 
-export function OrderDetailPage({ user }: Props) {
+export function OrderDetailPage({ user: _user }: Props) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [order, setOrder] = useState<ApiSalesOrder | null>(null);
   const [items, setItems] = useState<ApiSalesOrderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-
-  const isStaff = user.role === 'ADMIN' || user.role === 'SALES_STAFF';
+  const [completing, setCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState('');
 
   const fetchOrder = async () => {
     if (!id) return;
@@ -68,32 +67,28 @@ export function OrderDetailPage({ user }: Props) {
 
   const handlePaymentDone = () => {
     setShowPaymentModal(false);
+    // Reload order to reflect new payment status
     setLoading(true);
     fetchOrder();
   };
 
-  const handleAction = async (action: 'ship' | 'complete' | 'cancel') => {
+  const handleComplete = async () => {
     if (!id) return;
-    const labels: Record<string, string> = {
-      ship: 'Xác nhận giao hàng?',
-      complete: 'Xác nhận đã nhận hàng?',
-      cancel: 'Bạn có chắc muốn hủy đơn hàng này?',
-    };
-    if (!window.confirm(labels[action])) return;
-    setActionLoading(action);
+    if (!confirm('Xác nhận bạn đã nhận được hàng và hoàn thành đơn?')) return;
+    setCompleting(true);
+    setCompleteError('');
     try {
-      const fn = action === 'ship' ? shipOrder : action === 'complete' ? completeOrder : cancelOrder;
-      const res = await fn(id);
-      if (res.statusCode === '200') {
+      const res = await completeOrder(id);
+      if (res.statusCode === '200' && res.data) {
         setLoading(true);
         fetchOrder();
       } else {
-        alert(res.message || 'Thao tác thất bại.');
+        setCompleteError(res.message || 'Không thể hoàn thành đơn. Vui lòng thử lại.');
       }
     } catch {
-      alert('Lỗi kết nối. Vui lòng thử lại.');
+      setCompleteError('Lỗi kết nối. Vui lòng thử lại.');
     } finally {
-      setActionLoading(null);
+      setCompleting(false);
     }
   };
 
@@ -131,6 +126,10 @@ export function OrderDetailPage({ user }: Props) {
     order.paymentStatus !== 'PAID' &&
     order.status !== 'CANCELLED';
 
+  // Khách xác nhận đã nhận hàng — chỉ khi đã thanh toán và đang giao
+  const canComplete =
+    order.paymentStatus === 'PAID' && order.status === 'SHIPPING';
+
   return (
     <>
       {showPaymentModal && order && (
@@ -159,54 +158,34 @@ export function OrderDetailPage({ user }: Props) {
             <h1 className="text-2xl font-bold">Chi tiết đơn hàng</h1>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {/* QR Payment - unpaid orders */}
               {canPay && (
                 <button
                   onClick={() => setShowPaymentModal(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium text-sm"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium shadow-sm"
                 >
-                  <QrCode size={16} />
+                  <QrCode size={18} />
                   Mở QR thanh toán
                 </button>
               )}
-
-              {/* Ship - CONFIRMED → DELIVERING (ADMIN/SALES_STAFF) */}
-              {isStaff && order.status === 'CONFIRMED' && (
+              {canComplete && (
                 <button
-                  onClick={() => handleAction('ship')}
-                  disabled={!!actionLoading}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium text-sm disabled:opacity-60"
+                  onClick={handleComplete}
+                  disabled={completing}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors font-medium shadow-sm disabled:opacity-60"
                 >
-                  <Truck size={16} />
-                  {actionLoading === 'ship' ? 'Đang xử lý...' : 'Xác nhận giao hàng'}
-                </button>
-              )}
-
-              {/* Complete - DELIVERING → COMPLETED (CUSTOMER + STAFF) */}
-              {order.status === 'DELIVERING' && (
-                <button
-                  onClick={() => handleAction('complete')}
-                  disabled={!!actionLoading}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors font-medium text-sm disabled:opacity-60"
-                >
-                  <CheckCircle size={16} />
-                  {actionLoading === 'complete' ? 'Đang xử lý...' : 'Xác nhận đã nhận hàng'}
-                </button>
-              )}
-
-              {/* Cancel - PENDING or CONFIRMED */}
-              {(order.status === 'PENDING' || order.status === 'CONFIRMED') && (
-                <button
-                  onClick={() => handleAction('cancel')}
-                  disabled={!!actionLoading}
-                  className="flex items-center gap-2 px-4 py-2.5 border border-red-300 text-red-600 rounded-xl hover:bg-red-50 transition-colors font-medium text-sm disabled:opacity-60"
-                >
-                  <X size={16} />
-                  {actionLoading === 'cancel' ? 'Đang hủy...' : 'Hủy đơn'}
+                  {completing ? <Loader2 size={18} className="animate-spin" /> : <PackageCheck size={18} />}
+                  {completing ? 'Đang xử lý...' : 'Đã nhận hàng'}
                 </button>
               )}
             </div>
           </div>
+
+          {completeError && (
+            <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              <AlertCircle size={16} className="flex-shrink-0" />
+              <span>{completeError}</span>
+            </div>
+          )}
 
           {/* Order Header */}
           <div className="bg-white rounded-xl shadow-sm p-6 mb-4">

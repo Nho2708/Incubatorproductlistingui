@@ -1,10 +1,23 @@
 const API_BASE_URL = 'https://api-incusmart.io.vn/api';
 const TOKEN_KEY = 'incusmart_token';
 
+// In-memory cache to avoid localStorage reads on every request
+let _cachedToken: string | null = null;
+
 export const tokenStorage = {
-  get: () => localStorage.getItem(TOKEN_KEY),
-  set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
-  remove: () => localStorage.removeItem(TOKEN_KEY),
+  get: (): string | null => {
+    if (_cachedToken !== null) return _cachedToken;
+    _cachedToken = localStorage.getItem(TOKEN_KEY);
+    return _cachedToken;
+  },
+  set: (token: string) => {
+    _cachedToken = token;
+    localStorage.setItem(TOKEN_KEY, token);
+  },
+  remove: () => {
+    _cachedToken = null;
+    localStorage.removeItem(TOKEN_KEY);
+  },
 };
 
 export function decodeJwt(token: string): Record<string, string> {
@@ -15,6 +28,22 @@ export function decodeJwt(token: string): Record<string, string> {
   } catch {
     return {};
   }
+}
+
+export function isTokenExpired(token: string): boolean {
+  try {
+    const claims = decodeJwt(token);
+    const exp = Number(claims['exp']);
+    if (!exp) return false;
+    return Date.now() / 1000 > exp;
+  } catch {
+    return true;
+  }
+}
+
+let _onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: () => void) {
+  _onUnauthorized = fn;
 }
 
 export interface BaseResponse<T> {
@@ -47,7 +76,18 @@ async function request<T>(
     headers,
   });
 
-  return response.json();
+  if (response.status === 401) {
+    tokenStorage.remove();
+    _onUnauthorized?.();
+    return {
+      statusCode: '401',
+      message: 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.',
+    } as BaseResponse<T>;
+  }
+
+  const json = await response.json();
+  // Normalize statusCode to string (BE có thể trả number hoặc string)
+  return { ...json, statusCode: String(json.statusCode) };
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -212,6 +252,15 @@ export async function createOrderGuest(data: {
   });
 }
 
+// Khách đã đăng nhập nhận (claim) đơn guest về tài khoản bằng mã đơn + mã tra cứu.
+// Đơn guest phải đã COMPLETED và chưa bị claim.
+export async function claimGuestOrder(orderCode: string, verificationPass: string) {
+  return request<boolean>('/orders/guest/claim', {
+    method: 'POST',
+    body: JSON.stringify({ orderCode, verificationPass }),
+  });
+}
+
 export interface ApiSalesOrder {
   id: string;
   orderCode?: string;
@@ -242,21 +291,11 @@ export async function getMyOrders(params?: {
   return request<PagedResult<ApiSalesOrder>>(`/orders?${query}`);
 }
 
-export async function claimGuestOrder(orderCode: string, verificationPass: string) {
-  return request<boolean>('/orders/guest/claim', {
-    method: 'POST',
-    body: JSON.stringify({ orderCode, verificationPass }),
-  });
-}
-
 export async function cancelOrder(orderId: string) {
   return request<boolean>(`/orders/${orderId}/cancel`, { method: 'POST' });
 }
 
-export async function shipOrder(orderId: string) {
-  return request<boolean>(`/orders/${orderId}/ship`, { method: 'POST' });
-}
-
+// Khách xác nhận đã nhận hàng → hoàn thành đơn. Đơn phải đã PAID và đang SHIPPING.
 export async function completeOrder(orderId: string) {
   return request<boolean>(`/orders/${orderId}/complete`, { method: 'POST' });
 }
@@ -284,6 +323,13 @@ export async function getOrderPaymentStatus(id: string) {
   return request<ApiOrderPaymentStatus>(`/orders/${id}/payment-status`);
 }
 
+// Tạo lại payment link/QR cho đơn đã tồn tại khi link cũ hết hạn.
+export async function recreateOrderPayment(id: string) {
+  return request<CreateOrderResponse>(`/orders/${id}/payment-link/refresh`, {
+    method: 'POST',
+  });
+}
+
 // ─── Customer Profile ─────────────────────────────────────────────────────────
 
 export interface ApiCustomerProfile {
@@ -300,6 +346,26 @@ export async function getMyProfile() {
   return request<ApiCustomerProfile>('/customers/me');
 }
 
+export interface ApiCustomerSummary {
+  id: string;
+  userId: string;
+  fullName: string;
+  email?: string;
+  phone: string;
+  address?: string;
+  userStatus: string;
+  customerStatus: string;
+  role: string;
+}
+
+export async function listCustomers(params?: { search?: string; page?: number; pageSize?: number }) {
+  const query = new URLSearchParams();
+  if (params?.search) query.set('search', params.search);
+  query.set('page', String(params?.page ?? 1));
+  query.set('pageSize', String(params?.pageSize ?? 50));
+  return request<PagedResult<ApiCustomerSummary>>(`/customers?${query}`);
+}
+
 export async function updateMyProfile(address: string) {
   return request<boolean>('/customers/me', {
     method: 'PUT',
@@ -307,9 +373,9 @@ export async function updateMyProfile(address: string) {
   });
 }
 
-// ─── Incubators (Máy ấp) ──────────────────────────────────────────────────────
+// ─── Incubators (máy ấp trứng) ────────────────────────────────────────────────
 
-export interface ApiIncubatorItem {
+export interface ApiIncubator {
   id: string;
   modelId: string;
   modelName?: string;
@@ -317,12 +383,45 @@ export interface ApiIncubatorItem {
   serialNumber?: string;
   customerId?: string;
   activatedAt?: string;
-  status: string;
+  status: string; // AVAILABLE | RESERVED | ACTIVE | REPLACEMENT_PENDING | IN_MAINTENANCE | DAMAGED | RETIRED
   createdAt: string;
+  updatedAt?: string;
 }
+
+export async function getIncubators(params?: {
+  status?: string;
+  modelId?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const query = new URLSearchParams();
+  if (params?.status) query.set('status', params.status);
+  if (params?.modelId) query.set('modelId', params.modelId);
+  query.set('page', String(params?.page ?? 1));
+  query.set('pageSize', String(params?.pageSize ?? 50));
+  return request<PagedResult<ApiIncubator>>(`/incubators?${query}`);
+}
+
+export async function getIncubatorById(id: string) {
+  return request<ApiIncubator>(`/incubators/${id}`);
+}
+
+export async function getIncubatorHatchingSeasons(
+  id: string,
+  params?: { status?: string; eggType?: string }
+) {
+  const query = new URLSearchParams();
+  if (params?.status) query.set('status', params.status);
+  if (params?.eggType) query.set('eggType', params.eggType);
+  const qs = query.toString();
+  return request<ApiHatchingSeason[]>(`/incubators/${id}/hatching-seasons${qs ? `?${qs}` : ''}`);
+}
+
+// ─── Hatching Seasons (mùa ấp) ────────────────────────────────────────────────
 
 export interface ApiHatchingSeason {
   id: string;
+  status: string; // ACTIVE | COMPLETED | FAILED | CANCELLED
   incubatorId: string;
   templateId?: string;
   seasonCode: string;
@@ -334,46 +433,189 @@ export interface ApiHatchingSeason {
   successCount: number;
   failCount: number;
   notes?: string;
-  status: string;
+  createdAt: string;
 }
 
-export async function getMyIncubators(params?: { status?: string; page?: number; pageSize?: number }) {
+export async function getHatchingSeasons(params?: {
+  incubatorId?: string;
+  customerId?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}) {
   const query = new URLSearchParams();
+  if (params?.incubatorId) query.set('incubatorId', params.incubatorId);
+  if (params?.customerId) query.set('customerId', params.customerId);
   if (params?.status) query.set('status', params.status);
   query.set('page', String(params?.page ?? 1));
-  query.set('pageSize', String(params?.pageSize ?? 50));
-  return request<PagedResult<ApiIncubatorItem>>(`/incubators?${query}`);
+  query.set('pageSize', String(params?.pageSize ?? 100));
+  return request<PagedResult<ApiHatchingSeason>>(`/hatching-seasons?${query}`);
 }
 
-export async function getIncubatorHatchingSeasons(incubatorId: string, status?: string) {
-  const query = new URLSearchParams();
-  if (status) query.set('status', status);
-  return request<ApiHatchingSeason[]>(`/incubators/${incubatorId}/hatching-seasons?${query}`);
+export interface ApiHatchingSeasonDetail {
+  season: ApiHatchingSeason;
+  template?: ApiHatchingSeasonTemplate;
+  batches: {
+    batch: ApiTemplateBatch & { id: string };
+    configs: ApiTemplateBatchConfig[];
+  }[];
 }
 
-// ─── Hatching Templates ───────────────────────────────────────────────────────
+export async function getHatchingSeasonById(id: string) {
+  return request<ApiHatchingSeasonDetail>(`/hatching-seasons/${id}`);
+}
+
+export async function updateHatchingSeason(
+  id: string,
+  data: {
+    endDate?: string;
+    totalEggs?: number;
+    successCount?: number;
+    failCount?: number;
+    notes?: string;
+  }
+) {
+  return request<boolean>(`/hatching-seasons/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateHatchingSeasonStatus(id: string, status: string) {
+  return request<boolean>(`/hatching-seasons/${id}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function createHatchingSeason(data: {
+  incubatorId: string;
+  templateId?: string;
+  name?: string;
+  eggType?: string;
+  startDate: string; // yyyy-MM-dd
+  totalEggs?: number;
+  notes?: string;
+}) {
+  return request<string>('/hatching-seasons', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// ─── Egg Type ─────────────────────────────────────────────────────────────────
+
+export const EGG_TYPES = [
+  { value: 'CHICKEN', label: 'Gà' },
+  { value: 'DUCK',    label: 'Vịt' },
+  { value: 'QUAIL',   label: 'Cút' },
+  { value: 'PIGEON',  label: 'Bồ câu' },
+] as const;
+
+export type EggTypeValue = typeof EGG_TYPES[number]['value'];
+
+export function eggTypeLabel(value?: string | null): string {
+  return EGG_TYPES.find((e) => e.value === value)?.label ?? value ?? '';
+}
+
+export function normalizeEggType(value?: string | number | null): string {
+  if (value == null || value === '') return '';
+  // numeric enum (backend serializes as int: 0=CHICKEN, 1=DUCK, 2=QUAIL, 3=PIGEON)
+  if (typeof value === 'number' || /^\d+$/.test(String(value))) {
+    return EGG_TYPES[Number(value)]?.value ?? '';
+  }
+  // valid enum string — pass through
+  if (EGG_TYPES.some((e) => e.value === value)) return String(value);
+  // legacy Vietnamese label → map to enum
+  const byLabel = EGG_TYPES.find((e) => e.label === value);
+  if (byLabel) return byLabel.value;
+  return '';
+}
+
+// ─── Hatching Season Templates (mẫu mùa ấp) ───────────────────────────────────
+
+export interface ApiTemplateBatchConfig {
+  configId: string;
+  targetValue?: number;
+  minValue?: number;
+  maxValue?: number;
+}
+
+export interface ApiTemplateBatch {
+  batchIndex: number;
+  name?: string;
+  numberOfDays: number;
+  notes?: string;
+  configs?: ApiTemplateBatchConfig[];
+}
 
 export interface ApiHatchingSeasonTemplate {
   id: string;
+  status: string;
   customerId?: string;
   name: string;
   description?: string;
   totalDays: number;
   eggType?: string;
   isActive: boolean;
-  createdByType: string;
-  status: string;
+  createdByType: string; // CUSTOMER | TECHNICIAN
   createdAt: string;
 }
 
+export interface HatchingSeasonTemplateDetail {
+  template: ApiHatchingSeasonTemplate;
+  batches: { batch: ApiTemplateBatch & { id: string }; configs: ApiTemplateBatchConfig[] }[];
+}
+
+export interface CreateTemplatePayload {
+  customerId?: string;
+  name: string;
+  description?: string;
+  eggType?: string;
+  createdByType: string;
+  batches: ApiTemplateBatch[];
+}
+
+export interface UpdateTemplatePayload {
+  name?: string;
+  description?: string;
+  eggType?: string;
+  isActive?: boolean;
+  batches?: ApiTemplateBatch[];
+}
+
 export async function getHatchingSeasonTemplates(params?: {
+  customerId?: string;
   createdByType?: string;
   page?: number;
   pageSize?: number;
 }) {
   const query = new URLSearchParams();
+  if (params?.customerId) query.set('customerId', params.customerId);
   if (params?.createdByType) query.set('createdByType', params.createdByType);
   query.set('page', String(params?.page ?? 1));
   query.set('pageSize', String(params?.pageSize ?? 50));
   return request<PagedResult<ApiHatchingSeasonTemplate>>(`/hatching-season-templates?${query}`);
+}
+
+export async function getHatchingSeasonTemplateById(id: string) {
+  return request<HatchingSeasonTemplateDetail>(`/hatching-season-templates/${id}`);
+}
+
+export async function createHatchingSeasonTemplate(payload: CreateTemplatePayload) {
+  return request<string>('/hatching-season-templates', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateHatchingSeasonTemplate(id: string, payload: UpdateTemplatePayload) {
+  return request<boolean>(`/hatching-season-templates/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteHatchingSeasonTemplate(id: string) {
+  return request<boolean>(`/hatching-season-templates/${id}`, { method: 'DELETE' });
 }

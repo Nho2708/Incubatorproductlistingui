@@ -3,7 +3,10 @@
     "allow": [
       "Skill(update-config)",
       "Bash(not exist *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Set-Location \"D:\\\\New folder \\(4\\)\\\\Incubatorproductlistingui\"; @\\(\"react-router-dom\",\"react-qr-code\",\"lucide-react\",\"react-dom\",\"react\"\\) | ForEach-Object { \"$_ : $\\(Test-Path \"node_modules/$_\"\\)\" })",
+      "PowerShell(Set-Location \"D:\\\\New folder \\(4\\)\\\\Incubatorproductlistingui\"; Get-Content package.json | ConvertFrom-Json | ForEach-Object { $_.dependencies.PSObject.Properties.Name } | Where-Object { -not \\(Test-Path \"node_modules/$_\"\\) })"
     ]
   }
 }
