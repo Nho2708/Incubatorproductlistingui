@@ -23,7 +23,7 @@ pipeline {
         stage('Build') {
             steps {
                 bat 'npm run build'
-                echo "Build thanh cong! Output o thu muc dist/"
+                echo "Build thanh cong! Output o thu muc build/"
             }
         }
 
@@ -31,11 +31,8 @@ pipeline {
             steps {
                 echo "=== Deploy len IIS ==="
                 bat '''
-                    robocopy dist "C:\\inetpub\\wwwroot\\IncubatorProductListingUI" /MIR /Z /W:5 /R:3
+                    robocopy build "C:\\inetpub\\wwwroot\\IncubatorProductListingUI" /MIR /Z /W:5 /R:3
                     IF %ERRORLEVEL% LEQ 3 EXIT 0
-                '''
-                bat '''
-                    powershell -Command "Import-Module WebAdministration; Restart-WebSite 'IncubatorProductListingUI'"
                 '''
                 echo "Deploy thanh cong!"
             }
