@@ -12,23 +12,33 @@ import {
   deleteHatchingSeasonTemplate,
   getHatchingSeasonTemplateById,
   listCustomers,
+  listConfigs,
   EGG_TYPES,
   eggTypeLabel,
   normalizeEggType,
   ApiHatchingSeasonTemplate,
   ApiTemplateBatch,
   ApiCustomerSummary,
+  ApiConfig,
   HatchingSeasonTemplateDetail,
 } from '../services/api';
 import { User } from '../App';
 
 type Props = { user: User };
 
+type BatchConfigForm = {
+  configId: string;
+  targetValue: string;
+  minValue: string;
+  maxValue: string;
+};
+
 type BatchForm = {
   batchIndex: number;
   name: string;
   numberOfDays: number;
   notes: string;
+  configs: BatchConfigForm[];
 };
 
 type TemplateForm = {
@@ -46,6 +56,8 @@ const emptyForm: TemplateForm = {
   isActive: true,
   batches: [],
 };
+
+const emptyBatchConfig = (): BatchConfigForm => ({ configId: '', targetValue: '', minValue: '', maxValue: '' });
 
 const EGG_ICONS: Record<string, string> = {
   CHICKEN: '🐔',
@@ -65,6 +77,9 @@ export function TemplatesPage({ user }: Props) {
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Configs danh sách thông số đo
+  const [availableConfigs, setAvailableConfigs] = useState<ApiConfig[]>([]);
 
   // Detail panel
   const [selectedTemplate, setSelectedTemplate] = useState<ApiHatchingSeasonTemplate | null>(null);
@@ -88,6 +103,13 @@ export function TemplatesPage({ user }: Props) {
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   const [searchingCustomer, setSearchingCustomer] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch configs once
+  useEffect(() => {
+    listConfigs({ pageSize: 100 }).then((res) => {
+      if (res.statusCode === '200' && res.data) setAvailableConfigs(res.data.items);
+    }).catch(() => {});
+  }, []);
 
   const searchCustomers = (q: string) => {
     setCustomerSearch(q);
@@ -137,13 +159,59 @@ export function TemplatesPage({ user }: Props) {
     setDetailLoading(true);
     try {
       const res = await getHatchingSeasonTemplateById(template.id);
-      if (res.statusCode === '200' && res.data) {
-        setSelectedDetail(res.data);
-      }
+      if (res.statusCode === '200' && res.data) setSelectedDetail(res.data);
     } catch { /* giữ thông tin cơ bản */ } finally {
       setDetailLoading(false);
     }
   }, []);
+
+  // ── Batch helpers ──────────────────────────────────────────────────────────
+
+  const addBatch = () => {
+    setForm((f) => ({
+      ...f,
+      batches: [...f.batches, { batchIndex: f.batches.length + 1, name: '', numberOfDays: 1, notes: '', configs: [] }],
+    }));
+  };
+
+  const updateBatch = (idx: number, patch: Partial<Omit<BatchForm, 'configs'>>) => {
+    setForm((f) => ({ ...f, batches: f.batches.map((b, i) => (i === idx ? { ...b, ...patch } : b)) }));
+  };
+
+  const removeBatch = (idx: number) => {
+    setForm((f) => ({
+      ...f,
+      batches: f.batches.filter((_, i) => i !== idx).map((b, i) => ({ ...b, batchIndex: i + 1 })),
+    }));
+  };
+
+  const addBatchConfig = (batchIdx: number) => {
+    setForm((f) => {
+      const batches = [...f.batches];
+      batches[batchIdx] = { ...batches[batchIdx], configs: [...batches[batchIdx].configs, emptyBatchConfig()] };
+      return { ...f, batches };
+    });
+  };
+
+  const updateBatchConfig = (batchIdx: number, cfgIdx: number, patch: Partial<BatchConfigForm>) => {
+    setForm((f) => {
+      const batches = [...f.batches];
+      const configs = [...batches[batchIdx].configs];
+      configs[cfgIdx] = { ...configs[cfgIdx], ...patch };
+      batches[batchIdx] = { ...batches[batchIdx], configs };
+      return { ...f, batches };
+    });
+  };
+
+  const removeBatchConfig = (batchIdx: number, cfgIdx: number) => {
+    setForm((f) => {
+      const batches = [...f.batches];
+      batches[batchIdx] = { ...batches[batchIdx], configs: batches[batchIdx].configs.filter((_, i) => i !== cfgIdx) };
+      return { ...f, batches };
+    });
+  };
+
+  // ── Modal open/close ───────────────────────────────────────────────────────
 
   const openCreate = () => {
     setEditingId(null);
@@ -175,6 +243,12 @@ export function TemplatesPage({ user }: Props) {
             name: b.batch.name || '',
             numberOfDays: b.batch.numberOfDays,
             notes: b.batch.notes || '',
+            configs: (b.configs || []).map((c) => ({
+              configId: c.configId,
+              targetValue: c.targetValue != null ? String(c.targetValue) : '',
+              minValue: c.minValue != null ? String(c.minValue) : '',
+              maxValue: c.maxValue != null ? String(c.maxValue) : '',
+            })),
           })),
         });
       } else {
@@ -187,33 +261,26 @@ export function TemplatesPage({ user }: Props) {
     }
   };
 
-  const addBatch = () => {
-    setForm((f) => ({
-      ...f,
-      batches: [...f.batches, { batchIndex: f.batches.length + 1, name: '', numberOfDays: 1, notes: '' }],
-    }));
-  };
-
-  const updateBatch = (idx: number, patch: Partial<BatchForm>) => {
-    setForm((f) => ({ ...f, batches: f.batches.map((b, i) => (i === idx ? { ...b, ...patch } : b)) }));
-  };
-
-  const removeBatch = (idx: number) => {
-    setForm((f) => ({
-      ...f,
-      batches: f.batches.filter((_, i) => i !== idx).map((b, i) => ({ ...b, batchIndex: i + 1 })),
-    }));
-  };
+  // ── Save ───────────────────────────────────────────────────────────────────
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
-    for (const b of form.batches) {
+
+    for (let i = 0; i < form.batches.length; i++) {
+      const b = form.batches[i];
       if (b.numberOfDays < 1) {
         setFormError(`Giai đoạn ${b.batchIndex}: số ngày phải ≥ 1.`);
         return;
       }
+      for (let j = 0; j < b.configs.length; j++) {
+        if (!b.configs[j].configId) {
+          setFormError(`Giai đoạn ${i + 1} — Thông số ${j + 1}: vui lòng chọn thông số.`);
+          return;
+        }
+      }
     }
+
     setSaving(true);
     try {
       const batches: ApiTemplateBatch[] = form.batches.map((b) => ({
@@ -221,7 +288,14 @@ export function TemplatesPage({ user }: Props) {
         name: b.name || undefined,
         numberOfDays: b.numberOfDays,
         notes: b.notes || undefined,
-        configs: [],
+        configs: b.configs
+          .filter((c) => c.configId)
+          .map((c) => ({
+            configId: c.configId,
+            targetValue: c.targetValue !== '' ? Number(c.targetValue) : undefined,
+            minValue: c.minValue !== '' ? Number(c.minValue) : undefined,
+            maxValue: c.maxValue !== '' ? Number(c.maxValue) : undefined,
+          })),
       }));
 
       let res;
@@ -238,8 +312,9 @@ export function TemplatesPage({ user }: Props) {
           name: form.name,
           description: form.description || undefined,
           eggType: form.eggType || undefined,
+          totalDays: batches.reduce((s, b) => s + b.numberOfDays, 0),
           customerId: isStaff ? (selectedCustomer?.id || undefined) : undefined,
-          createdByType: isStaff ? (selectedCustomer ? 'CUSTOMER' : 'TECHNICIAN') : 'CUSTOMER',
+          createdByType: isStaff ? 'TECHNICIAN' : 'CUSTOMER',
           batches,
         });
       }
@@ -267,10 +342,7 @@ export function TemplatesPage({ user }: Props) {
     try {
       const res = await deleteHatchingSeasonTemplate(id);
       if (res.statusCode === '200') {
-        if (selectedTemplate?.id === id) {
-          setSelectedTemplate(null);
-          setSelectedDetail(null);
-        }
+        if (selectedTemplate?.id === id) { setSelectedTemplate(null); setSelectedDetail(null); }
         fetchTemplates(currentPage);
       } else {
         alert(res.message || 'Không thể xóa mẫu.');
@@ -289,6 +361,14 @@ export function TemplatesPage({ user }: Props) {
     if (eggType === 'PIGEON')  return 'bg-violet-50 text-violet-700 border-violet-200';
     return 'bg-gray-100 text-gray-400 border-gray-200';
   };
+
+  const configLabel = (configId: string) => {
+    const cfg = availableConfigs.find((c) => c.id === configId);
+    if (!cfg) return configId;
+    return cfg.unit ? `${cfg.name} (${cfg.unit})` : cfg.name;
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -362,8 +442,7 @@ export function TemplatesPage({ user }: Props) {
                   onClick={openCreate}
                   className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium text-sm"
                 >
-                  <Plus size={16} />
-                  Tạo mẫu đầu tiên
+                  <Plus size={16} /> Tạo mẫu đầu tiên
                 </button>
               </div>
             ) : (
@@ -373,25 +452,18 @@ export function TemplatesPage({ user }: Props) {
                     key={t.id}
                     onClick={() => handleSelectTemplate(t)}
                     className={`bg-white rounded-xl border-2 shadow-sm cursor-pointer transition-all hover:shadow-md ${
-                      selectedTemplate?.id === t.id
-                        ? 'border-blue-500 shadow-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                      selectedTemplate?.id === t.id ? 'border-blue-500 shadow-blue-50' : 'border-gray-200 hover:border-gray-300'
                     }`}
                   >
                     <div className="p-4">
-                      {/* Header row */}
                       <div className="flex items-start justify-between gap-3 mb-3">
                         <div className="flex items-center gap-3 min-w-0">
                           <span className="text-3xl flex-shrink-0">{getEggIcon(t.eggType)}</span>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold text-gray-900 text-sm leading-snug">
-                                {t.name}
-                              </h3>
+                              <h3 className="font-semibold text-gray-900 text-sm leading-snug">{t.name}</h3>
                               {!t.isActive && (
-                                <span className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-500 rounded flex-shrink-0">
-                                  Tạm tắt
-                                </span>
+                                <span className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-500 rounded flex-shrink-0">Tạm tắt</span>
                               )}
                             </div>
                             {t.eggType && (
@@ -401,31 +473,16 @@ export function TemplatesPage({ user }: Props) {
                             )}
                           </div>
                         </div>
-
-                        {/* Action buttons — stop propagation so click doesn't select card */}
                         <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => openEdit(t.id)}
-                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Chỉnh sửa"
-                          >
+                          <button onClick={() => openEdit(t.id)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Chỉnh sửa">
                             <Pencil size={14} />
                           </button>
-                          <button
-                            onClick={() => handleDelete(t.id)}
-                            disabled={deletingId === t.id}
-                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                            title="Xóa"
-                          >
-                            {deletingId === t.id
-                              ? <Loader2 size={14} className="animate-spin" />
-                              : <Trash2 size={14} />
-                            }
+                          <button onClick={() => handleDelete(t.id)} disabled={deletingId === t.id} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50" title="Xóa">
+                            {deletingId === t.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                           </button>
                         </div>
                       </div>
 
-                      {/* Stats */}
                       <div className="grid grid-cols-3 gap-2 mb-3">
                         <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-2">
                           <div className="flex items-center gap-1 mb-0.5">
@@ -454,9 +511,7 @@ export function TemplatesPage({ user }: Props) {
                         </div>
                       </div>
 
-                      {t.description && (
-                        <p className="text-xs text-gray-500 truncate mb-2">{t.description}</p>
-                      )}
+                      {t.description && <p className="text-xs text-gray-500 truncate mb-2">{t.description}</p>}
 
                       <div className="flex items-center justify-end text-blue-500 text-xs gap-1">
                         <span>Xem chi tiết</span>
@@ -466,28 +521,15 @@ export function TemplatesPage({ user }: Props) {
                   </div>
                 ))}
 
-                {/* Pagination */}
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between pt-4 border-t border-gray-100">
                     <span className="text-xs text-gray-400">{totalItems} mẫu</span>
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors"
-                      >
-                        ‹
-                      </button>
-                      <span className="px-3 py-1.5 text-xs text-gray-500">
-                        {currentPage} / {totalPages}
-                      </span>
-                      <button
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors"
-                      >
-                        ›
-                      </button>
+                      <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors">‹</button>
+                      <span className="px-3 py-1.5 text-xs text-gray-500">{currentPage} / {totalPages}</span>
+                      <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors">›</button>
                     </div>
                   </div>
                 )}
@@ -499,12 +541,9 @@ export function TemplatesPage({ user }: Props) {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 h-fit sticky top-6 max-h-[80vh] overflow-y-auto">
             {selectedTemplate ? (
               <div className="space-y-4">
-                {/* Template identity */}
                 <div className="text-center pb-4 border-b border-gray-100">
                   <span className="text-5xl mb-2 block">{getEggIcon(selectedTemplate.eggType)}</span>
-                  <h3 className="text-base font-semibold text-gray-800 leading-snug">
-                    {selectedTemplate.name}
-                  </h3>
+                  <h3 className="text-base font-semibold text-gray-800 leading-snug">{selectedTemplate.name}</h3>
                   {selectedTemplate.eggType && (
                     <span className={`inline-flex items-center mt-1 px-2 py-0.5 text-xs font-medium border rounded-md ${eggChipClass(selectedTemplate.eggType)}`}>
                       {eggTypeLabel(selectedTemplate.eggType)}
@@ -512,7 +551,6 @@ export function TemplatesPage({ user }: Props) {
                   )}
                 </div>
 
-                {/* Metadata */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg text-xs">
                     <span className="text-gray-500">Tổng ngày ấp</span>
@@ -544,17 +582,14 @@ export function TemplatesPage({ user }: Props) {
                   </div>
                 </div>
 
-                {/* Batches */}
                 <div>
                   <div className="flex items-center gap-1.5 mb-2">
                     <Settings size={13} className="text-purple-600" />
                     <span className="text-xs font-semibold text-gray-700">Các giai đoạn</span>
                   </div>
-
                   {detailLoading ? (
                     <div className="flex items-center justify-center py-6 gap-2 text-gray-400 text-xs">
-                      <Loader2 size={14} className="animate-spin" />
-                      Đang tải...
+                      <Loader2 size={14} className="animate-spin" /> Đang tải...
                     </div>
                   ) : !selectedDetail || selectedDetail.batches.length === 0 ? (
                     <p className="text-xs text-gray-400 text-center py-4">Chưa có giai đoạn nào</p>
@@ -571,24 +606,27 @@ export function TemplatesPage({ user }: Props) {
                               </span>
                               <span className="text-xs text-gray-500">{batch.numberOfDays} ngày</span>
                             </div>
-                            {batch.notes && (
-                              <p className="px-3 py-1 text-xs text-gray-500 italic">{batch.notes}</p>
-                            )}
+                            {batch.notes && <p className="px-3 py-1 text-xs text-gray-500 italic">{batch.notes}</p>}
                             {bd.configs.length === 0 ? (
                               <p className="px-3 py-1.5 text-xs text-gray-400">Không có thông số</p>
                             ) : (
                               <div className="px-3 py-2 space-y-1">
-                                {bd.configs.map((cfg, ci) => (
-                                  <div key={ci} className="flex items-center justify-between text-xs bg-gray-50 rounded px-2 py-1">
-                                    <span className="text-gray-600 font-medium truncate max-w-[60%]">{cfg.configId}</span>
-                                    <span className="text-gray-500 text-right flex-shrink-0">
-                                      {cfg.targetValue != null && <span>Mục tiêu: {cfg.targetValue}</span>}
-                                      {cfg.minValue != null && cfg.maxValue != null && (
-                                        <span className="ml-1">[{cfg.minValue}–{cfg.maxValue}]</span>
-                                      )}
-                                    </span>
-                                  </div>
-                                ))}
+                                {bd.configs.map((cfg, ci) => {
+                                  const def = availableConfigs.find((c) => c.id === cfg.configId);
+                                  return (
+                                    <div key={ci} className="flex items-center justify-between text-xs bg-gray-50 rounded px-2 py-1 gap-2">
+                                      <span className="text-gray-700 font-medium truncate">
+                                        {def ? (def.unit ? `${def.name} (${def.unit})` : def.name) : cfg.configId}
+                                      </span>
+                                      <span className="text-gray-500 text-right flex-shrink-0 space-x-1">
+                                        {cfg.targetValue != null && <span>Mục tiêu: {cfg.targetValue}</span>}
+                                        {cfg.minValue != null && cfg.maxValue != null && (
+                                          <span>[{cfg.minValue}–{cfg.maxValue}]</span>
+                                        )}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -603,8 +641,7 @@ export function TemplatesPage({ user }: Props) {
                     onClick={() => openEdit(selectedTemplate.id)}
                     className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 transition-colors"
                   >
-                    <Pencil size={14} />
-                    Chỉnh sửa
+                    <Pencil size={14} /> Chỉnh sửa
                   </button>
                 </div>
               </div>
@@ -621,12 +658,8 @@ export function TemplatesPage({ user }: Props) {
       {/* ── Modal tạo / sửa ── */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => !saving && setShowForm(false)}
-          />
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !saving && setShowForm(false)} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-auto max-h-[90vh] overflow-hidden flex flex-col">
-            {/* Header */}
             <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
@@ -665,53 +698,44 @@ export function TemplatesPage({ user }: Props) {
                           Tên mẫu <span className="text-red-500">*</span>
                         </label>
                         <input
-                          type="text"
-                          required
-                          maxLength={100}
+                          type="text" required maxLength={100}
                           value={form.name}
                           onChange={(e) => setForm({ ...form, name: e.target.value })}
-                          className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50 focus:bg-white transition-colors"
+                          className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 focus:bg-white transition-colors"
                           placeholder="VD: Quy trình ấp trứng gà 21 ngày"
                         />
                       </div>
-
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">Mô tả</label>
                         <textarea
                           value={form.description}
                           onChange={(e) => setForm({ ...form, description: e.target.value })}
                           rows={2}
-                          className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50 focus:bg-white transition-colors resize-none"
+                          className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 focus:bg-white transition-colors resize-none"
                           placeholder="Mô tả ngắn về quy trình..."
                         />
                       </div>
-
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1.5">Loại trứng</label>
                           <select
                             value={form.eggType}
                             onChange={(e) => setForm({ ...form, eggType: e.target.value })}
-                            className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50 focus:bg-white transition-colors"
+                            className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 focus:bg-white transition-colors"
                           >
                             <option value="">-- Chọn loại trứng --</option>
-                            {EGG_TYPES.map((e) => (
-                              <option key={e.value} value={e.value}>{e.label}</option>
-                            ))}
+                            {EGG_TYPES.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
                           </select>
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1.5">Tổng số ngày</label>
-                          <div className="px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-600 flex items-center gap-1.5">
+                          <div className="px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm flex items-center gap-1.5">
                             <CalendarDays size={14} className="text-blue-400" />
-                            <span className="font-semibold text-gray-800">
-                              {form.batches.reduce((s, b) => s + b.numberOfDays, 0)}
-                            </span>
+                            <span className="font-semibold text-gray-800">{form.batches.reduce((s, b) => s + b.numberOfDays, 0)}</span>
                             <span className="text-gray-400">ngày</span>
                           </div>
                         </div>
                       </div>
-
                       {editingId && (
                         <label className="flex items-center gap-2.5 text-sm cursor-pointer select-none">
                           <div
@@ -730,7 +754,7 @@ export function TemplatesPage({ user }: Props) {
                     </div>
                   </div>
 
-                  {/* Customer picker — staff tạo mới */}
+                  {/* Customer picker */}
                   {isStaff && !editingId && (
                     <div>
                       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Gán cho khách hàng</p>
@@ -745,40 +769,29 @@ export function TemplatesPage({ user }: Props) {
                               {selectedCustomer.phone}{selectedCustomer.email ? ` · ${selectedCustomer.email}` : ''}
                             </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => { setSelectedCustomer(null); setCustomerSearch(''); setCustomerResults([]); }}
-                            className="p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
-                          >
+                          <button type="button" onClick={() => { setSelectedCustomer(null); setCustomerSearch(''); setCustomerResults([]); }}
+                            className="p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
                             <X size={15} />
                           </button>
                         </div>
                       ) : (
                         <div className="relative">
-                          <div className="relative">
-                            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input
-                              type="text"
-                              value={customerSearch}
-                              onChange={(e) => searchCustomers(e.target.value)}
-                              onFocus={() => customerResults.length > 0 && setCustomerPickerOpen(true)}
-                              onBlur={() => setTimeout(() => setCustomerPickerOpen(false), 150)}
-                              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
-                              placeholder="Tìm theo tên, SĐT, email... (để trống = mẫu hệ thống)"
-                            />
-                            {searchingCustomer && (
-                              <Loader2 size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-gray-400" />
-                            )}
-                          </div>
+                          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input
+                            type="text" value={customerSearch}
+                            onChange={(e) => searchCustomers(e.target.value)}
+                            onFocus={() => customerResults.length > 0 && setCustomerPickerOpen(true)}
+                            onBlur={() => setTimeout(() => setCustomerPickerOpen(false), 150)}
+                            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                            placeholder="Tìm theo tên, SĐT, email... (để trống = mẫu hệ thống)"
+                          />
+                          {searchingCustomer && <Loader2 size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-gray-400" />}
                           {customerPickerOpen && customerResults.length > 0 && (
                             <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                               {customerResults.map((c) => (
-                                <button
-                                  key={c.id}
-                                  type="button"
+                                <button key={c.id} type="button"
                                   onMouseDown={() => { setSelectedCustomer(c); setCustomerPickerOpen(false); setCustomerSearch(''); }}
-                                  className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-sm border-b border-gray-100 last:border-0 transition-colors"
-                                >
+                                  className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-sm border-b border-gray-100 last:border-0 transition-colors">
                                   <div className="font-medium text-gray-900">{c.fullName}</div>
                                   <div className="text-xs text-gray-400">{c.phone}{c.email ? ` · ${c.email}` : ''}</div>
                                 </button>
@@ -794,20 +807,16 @@ export function TemplatesPage({ user }: Props) {
                   <div>
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                        Các giai đoạn
+                        Giai đoạn ấp
                         {form.batches.length > 0 && (
                           <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-md normal-case font-medium text-xs">
                             {form.batches.length}
                           </span>
                         )}
                       </p>
-                      <button
-                        type="button"
-                        onClick={addBatch}
-                        className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 px-2.5 py-1.5 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        <Plus size={13} />
-                        Thêm giai đoạn
+                      <button type="button" onClick={addBatch}
+                        className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 px-2.5 py-1.5 hover:bg-blue-50 rounded-lg transition-colors">
+                        <Plus size={13} /> Thêm giai đoạn
                       </button>
                     </div>
 
@@ -821,37 +830,78 @@ export function TemplatesPage({ user }: Props) {
                         </p>
                       </div>
                     ) : (
-                      <div className="space-y-2">
-                        {form.batches.map((b, idx) => (
-                          <div key={idx} className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
-                            <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                              {b.batchIndex}
-                            </span>
-                            <input
-                              type="text"
-                              value={b.name}
-                              onChange={(e) => updateBatch(idx, { name: e.target.value })}
-                              placeholder="Tên giai đoạn"
-                              className="flex-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-0"
-                            />
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <input
-                                type="number"
-                                value={b.numberOfDays}
-                                min={1}
-                                max={365}
-                                onChange={(e) => updateBatch(idx, { numberOfDays: Number(e.target.value) })}
-                                className="w-16 px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              />
-                              <span className="text-xs text-gray-400">ngày</span>
+                      <div className="space-y-3">
+                        {form.batches.map((b, bi) => (
+                          <div key={bi} className="border border-gray-200 rounded-xl overflow-hidden">
+                            {/* Batch header */}
+                            <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
+                              <span className="text-xs font-semibold text-purple-700">Giai đoạn #{b.batchIndex}</span>
+                              <button type="button" onClick={() => removeBatch(bi)}
+                                className="text-red-400 hover:text-red-600 transition-colors">
+                                <Trash2 size={14} />
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => removeBatch(idx)}
-                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+
+                            <div className="p-3 space-y-2">
+                              {/* Tên + số ngày */}
+                              <div className="grid grid-cols-2 gap-2">
+                                <input
+                                  type="text" placeholder="Tên giai đoạn" value={b.name}
+                                  onChange={(e) => updateBatch(bi, { name: e.target.value })}
+                                  className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                                />
+                                <input
+                                  type="number" placeholder="Số ngày *" value={b.numberOfDays} min={1} max={365}
+                                  onChange={(e) => updateBatch(bi, { numberOfDays: Number(e.target.value) })}
+                                  className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                                />
+                              </div>
+
+                              {/* Thông số đo */}
+                              <div className="border-t border-gray-100 pt-2">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs text-gray-600 font-medium">Thông số đo</span>
+                                  <button type="button" onClick={() => addBatchConfig(bi)}
+                                    className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 font-medium transition-colors">
+                                    <Plus size={11} /> Thêm thông số
+                                  </button>
+                                </div>
+
+                                {b.configs.length === 0 ? (
+                                  <p className="text-xs text-gray-400 italic">Chưa có thông số</p>
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    {b.configs.map((cfg, ci) => (
+                                      <div key={ci} className="grid gap-1.5 items-center" style={{ gridTemplateColumns: '1fr 64px 64px 64px auto' }}>
+                                        <select
+                                          value={cfg.configId}
+                                          onChange={(e) => updateBatchConfig(bi, ci, { configId: e.target.value })}
+                                          className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+                                        >
+                                          <option value="">-- Chọn --</option>
+                                          {availableConfigs.map((c) => (
+                                            <option key={c.id} value={c.id}>{c.name}{c.unit ? ` (${c.unit})` : ''}</option>
+                                          ))}
+                                        </select>
+                                        <input type="number" placeholder="Mục tiêu" value={cfg.targetValue}
+                                          onChange={(e) => updateBatchConfig(bi, ci, { targetValue: e.target.value })}
+                                          className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white text-center" />
+                                        <input type="number" placeholder="Tối thiểu" value={cfg.minValue}
+                                          onChange={(e) => updateBatchConfig(bi, ci, { minValue: e.target.value })}
+                                          className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white text-center" />
+                                        <input type="number" placeholder="Tối đa" value={cfg.maxValue}
+                                          onChange={(e) => updateBatchConfig(bi, ci, { maxValue: e.target.value })}
+                                          className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white text-center" />
+                                        <button type="button" onClick={() => removeBatchConfig(bi, ci)}
+                                          className="text-gray-400 hover:text-red-500 transition-colors">
+                                          <X size={14} />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -861,24 +911,16 @@ export function TemplatesPage({ user }: Props) {
 
                 {/* Footer */}
                 <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
-                  <button
-                    type="button"
-                    onClick={() => setShowForm(false)}
-                    disabled={saving}
-                    className="flex-1 px-5 py-2.5 text-sm font-medium border border-gray-200 rounded-xl hover:bg-gray-100 disabled:opacity-60 transition-colors"
-                  >
+                  <button type="button" onClick={() => setShowForm(false)} disabled={saving}
+                    className="flex-1 px-5 py-2.5 text-sm font-medium border border-gray-200 rounded-xl hover:bg-gray-100 disabled:opacity-60 transition-colors">
                     Hủy
                   </button>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 disabled:opacity-60 transition-all shadow-sm"
-                  >
-                    {saving ? (
-                      <><Loader2 size={16} className="animate-spin" />Đang lưu...</>
-                    ) : (
-                      <><CheckCircle size={16} />{editingId ? 'Lưu thay đổi' : 'Tạo mẫu'}</>
-                    )}
+                  <button type="submit" disabled={saving}
+                    className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 disabled:opacity-60 transition-all shadow-sm">
+                    {saving
+                      ? <><Loader2 size={16} className="animate-spin" />Đang lưu...</>
+                      : <><CheckCircle size={16} />{editingId ? 'Lưu thay đổi' : 'Tạo mẫu'}</>
+                    }
                   </button>
                 </div>
               </form>
