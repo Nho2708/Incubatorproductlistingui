@@ -1,6 +1,11 @@
 pipeline {
     agent any
 
+    environment {
+        NODE_OPTIONS = '--max-old-space-size=4096'
+        DEPLOY_DIR = 'C:\\inetpub\\wwwroot\\CustomerUI'
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -26,10 +31,10 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo "=== Deploy len IIS ==="
-                bat '''
-                    robocopy build "C:\\inetpub\\wwwroot\\CustomerUI" /MIR /Z /W:5 /R:3
+                bat """
+                    robocopy build "%DEPLOY_DIR%" /MIR /Z /W:5 /R:3
                     IF %ERRORLEVEL% LEQ 3 EXIT 0
-                '''
+                """
                 echo "Deploy thanh cong!"
             }
         }
@@ -37,10 +42,10 @@ pipeline {
 
     post {
         success {
-            echo "Pipeline thanh cong!"
+            echo "Pipeline thanh cong! Branch: ${env.BRANCH_NAME}"
         }
         failure {
-            echo "Pipeline that bai!"
+            echo "Pipeline that bai! Kiem tra log o tren."
         }
     }
 }
