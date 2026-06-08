@@ -99,16 +99,30 @@ export async function login(username: string, password: string) {
   });
 }
 
-export async function register(
-  username: string,
-  password: string,
-  fullName: string,
-  phone: string,
-  email?: string
-) {
+export async function register(payload: {
+  username: string;
+  password: string;
+  fullName: string;
+  email: string;
+  phone: string;
+}) {
   return request<string>('/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ username, password, fullName, phone, email }),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function registerResend(sessionId: string) {
+  return request<string>('/auth/register/resend', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId }),
+  });
+}
+
+export async function registerVerify(sessionId: string, otp: string) {
+  return request<null>('/auth/register/verify', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId, otp }),
   });
 }
 
