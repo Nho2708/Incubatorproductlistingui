@@ -12,13 +12,13 @@ pipeline {
 
         stage('Install') {
             steps {
-                bat 'npm install'
+                bat '"C:\\Program Files\\nodejs\\npm.cmd" install'
             }
         }
 
         stage('Build') {
             steps {
-                bat 'npm run build'
+                bat '"C:\\Program Files\\nodejs\\npm.cmd" run build'
                 echo "Build thanh cong! Output o thu muc build/"
             }
         }
