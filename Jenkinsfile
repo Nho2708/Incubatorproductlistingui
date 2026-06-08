@@ -1,10 +1,6 @@
 pipeline {
     agent any
 
-    environment {
-        NODE_OPTIONS = '--max-old-space-size=512'
-    }
-
     stages {
         stage('Checkout') {
             steps {
