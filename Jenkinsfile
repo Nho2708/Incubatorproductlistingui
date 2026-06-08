@@ -1,8 +1,8 @@
 pipeline {
     agent any
 
-    tools {
-        nodejs 'Node 20'
+    environment {
+        NODE_OPTIONS = '--max-old-space-size=512'
     }
 
     stages {
@@ -16,7 +16,7 @@ pipeline {
 
         stage('Install') {
             steps {
-                bat 'npm ci'
+                bat 'npm install'
             }
         }
 
@@ -31,7 +31,7 @@ pipeline {
             steps {
                 echo "=== Deploy len IIS ==="
                 bat '''
-                    robocopy build "C:\\inetpub\\wwwroot\\IncubatorProductListingUI" /MIR /Z /W:5 /R:3
+                    robocopy build "C:\\inetpub\\wwwroot\\CustomerUI" /MIR /Z /W:5 /R:3
                     IF %ERRORLEVEL% LEQ 3 EXIT 0
                 '''
                 echo "Deploy thanh cong!"
