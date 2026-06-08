@@ -546,6 +546,29 @@ export function normalizeEggType(value?: string | number | null): string {
   return '';
 }
 
+// ─── Configs (thông số đo) ───────────────────────────────────────────────────
+
+export interface ApiConfig {
+  id: string;
+  code: string;
+  name: string;
+  type: string | null;
+  unit: string | null;
+  description: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export async function listConfigs(params?: { search?: string; page?: number; pageSize?: number }) {
+  const q = new URLSearchParams({
+    page: String(params?.page ?? 1),
+    pageSize: String(params?.pageSize ?? 100),
+  });
+  if (params?.search?.trim()) q.set('search', params.search.trim());
+  return request<PagedResult<ApiConfig>>(`/configs?${q}`);
+}
+
 // ─── Hatching Season Templates (mẫu mùa ấp) ───────────────────────────────────
 
 export interface ApiTemplateBatchConfig {
@@ -586,6 +609,7 @@ export interface CreateTemplatePayload {
   name: string;
   description?: string;
   eggType?: string;
+  totalDays?: number;
   createdByType: string;
   batches: ApiTemplateBatch[];
 }
