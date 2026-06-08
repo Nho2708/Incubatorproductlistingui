@@ -1,9 +1,12 @@
 pipeline {
     agent any
 
+    tools {
+        nodejs 'Node 20'
+    }
+
     environment {
         NODE_OPTIONS = '--max-old-space-size=4096'
-        DEPLOY_DIR = 'C:\\inetpub\\wwwroot\\CustomerUI'
     }
 
     stages {
@@ -15,15 +18,21 @@ pipeline {
             }
         }
 
+        stage('Clean Workspace') {
+            steps {
+                bat 'if exist node_modules rmdir /s /q node_modules'
+            }
+        }
+
         stage('Install') {
             steps {
-                bat '"C:\\Program Files\\nodejs\\npm.cmd" install'
+                bat 'npm install --prefer-offline'
             }
         }
 
         stage('Build') {
             steps {
-                bat '"C:\\Program Files\\nodejs\\npm.cmd" run build'
+                bat 'npm run build'
                 echo "Build thanh cong! Output o thu muc build/"
             }
         }
@@ -31,10 +40,10 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo "=== Deploy len IIS ==="
-                bat """
-                    robocopy build "%DEPLOY_DIR%" /MIR /Z /W:5 /R:3
+                bat '''
+                    robocopy build "C:\\inetpub\\wwwroot\\CustomerUI" /MIR /Z /W:5 /R:3
                     IF %ERRORLEVEL% LEQ 3 EXIT 0
-                """
+                '''
                 echo "Deploy thanh cong!"
             }
         }
@@ -42,10 +51,10 @@ pipeline {
 
     post {
         success {
-            echo "Pipeline thanh cong! Branch: ${env.BRANCH_NAME}"
+            echo "Pipeline thanh cong!"
         }
         failure {
-            echo "Pipeline that bai! Kiem tra log o tren."
+            echo "Pipeline that bai!"
         }
     }
 }
